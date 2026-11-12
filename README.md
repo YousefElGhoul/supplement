@@ -29,7 +29,8 @@ Claude Code mirrors the OpenCode setup from `dotfiles/claude`: `settings.json`
 (model, Git allow/deny rules, Herdr session hook), Herdr's hook script and a
 `CLAUDE.md` that imports OpenCode's `AGENTS.md`, so both agents share one set of
 instructions. Deployment also links the shared `~/.agents/skills` listed in
-`CLAUDE_SKILLS` (`deploy-stow.py`) into `~/.claude/skills`. Credentials,
+`CLAUDE_SKILLS` (`deploy-stow.py`) into `~/.claude/skills`. Commit and pull request
+attribution is disabled. Credentials,
 `~/.claude.json`, the Omarchy-generated theme, plugins and account connectors
 are not tracked; log in again after a reinstall.
 
