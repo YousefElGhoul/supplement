@@ -1,29 +1,21 @@
 {
   "bar": {
+    "background": "glassy",
     "layout": {
-      "centerBegin": [
-        {
-          "id": "omarchy.indicators"
-        },
-        {
-          "id": "omarchy.keyboard-layout"
-        }
-      ],
       "center": [
         {
-          "id": "omarchy.clock",
           "format": "ddd d MMM HH:mm",
           "formatAlt": "d MMMM 'W'ww yyyy",
+          "id": "omarchy.clock",
           "verticalFormat": "HH\n—\nmm"
         }
       ],
+      "centerBegin": [
+        {
+          "id": "omarchy.indicators"
+        }
+      ],
       "centerEnd": [
-        {
-          "id": "omarchy.elsewhen"
-        },
-        {
-          "id": "omarchy.weather"
-        },
         {
           "id": "ghoul.indicators"
         },
@@ -50,7 +42,10 @@
           "id": "omarchy.tray"
         },
         {
-          "id": "omarchy.agents"
+          "id": "omarchy.keyboard-layout"
+        },
+        {
+          "id": "ghoul.agents"
         },
         {
           "id": "omarchy.bluetooth"
@@ -68,27 +63,39 @@
           "id": "monitor-layout"
         },
         {
-          "id": "omarchy.spacer"
-        },
-        {
           "id": "omarchy.power",
           "showPercentage": true
         }
+      ],
+      "tray": [
+        {
+          "id": "salah.prayer-times"
+        }
       ]
     },
-    "position": "top",
-    "transparent": false
+    "position": "top"
+  },
+  "cloneSourceRestores": [
+    "monitor-layout"
+  ],
+  "disabledPlugins": [
+    "omarchy.monitor"
+  ],
+  "dock": {
+    "pinned": [
+      "org.gnome.Nautilus",
+      "chromium",
+      "omacalc",
+      "omawrite",
+      "foot",
+      "X",
+      "YouTube"
+    ]
   },
   "idle": {
     "lock": 300,
     "screensaver": 150
   },
   "plugins": [],
-  "version": 1,
-  "disabledPlugins": [
-    "omarchy.monitor"
-  ],
-  "cloneSourceRestores": [
-    "monitor-layout"
-  ]
+  "version": 1
 }
