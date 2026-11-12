@@ -18,6 +18,8 @@ hl.unbind("SUPER + SHIFT + ALT + M")
 hl.unbind("SUPER + SHIFT + G")
 hl.unbind("SUPER + SHIFT + SLASH")
 
+hl.unbind("SUPER + A")
+
 -- Change Keybind for btop
 hl.unbind("SUPER + CTRL + T")
 o.bind("CTRL + SHIFT + ESCAPE", "Activity", { tui = "btop" })
