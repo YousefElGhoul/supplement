@@ -20,6 +20,12 @@ alias tddev='tmuxp load tablet-docker-dev'
 alias tadev='tmuxp load tablet-ai-dev'
 alias tdadev='tmuxp load tablet-ai-docker-dev'
 
+alias hdev='herdr-app-space'
+alias hddev='herdr-app-space --docker'
+
+alias thdev='herdr-space'
+alias thddev='herdr-space --docker'
+
 alias edit='NVIM_APPNAME=nvim-ghoul nvim'
 alias mdedit='NVIM_APPNAME=nvim-markdown nvim'
 

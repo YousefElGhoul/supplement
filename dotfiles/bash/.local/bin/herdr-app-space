@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Open a herdr-app space for the current folder with the dev tabs:
+# editor, git, yazi, docker (with --docker), and agents (claude | opencode).
+set -euo pipefail
+
+usage() {
+  echo "Usage: ${0##*/} [--docker]" >&2
+  exit 2
+}
+
+docker=false
+for arg in "$@"; do
+  case $arg in
+  --docker) docker=true ;;
+  *) usage ;;
+  esac
+done
+
+for tool in herdr-app jq; do
+  command -v "$tool" >/dev/null || {
+    echo "$tool is required." >&2
+    exit 1
+  }
+done
+
+folder=$PWD
+name=${folder##*/}
+
+# Run a herdr-app command and print its JSON, or stop with its error.
+app() {
+  local out
+  out=$(herdr-app "do" "$@" 2>&1) || {
+    printf 'herdr-app do %s failed: %s\n' "$1" "$out" >&2
+    exit 1
+  }
+  printf '%s\n' "$out"
+}
+
+argv() { jq -cn '$ARGS.positional' --args "$@"; }
+
+tab() {
+  local label=$1
+  shift
+  app tab.new --space "$space" --name "$label" --folder "$folder" --argv "$(argv "$@")"
+}
+
+created=$(app space.new --name "$name" --folder "$folder" --tab editor --argv "$(argv nvim .)")
+space=$(jq -r .space <<<"$created")
+editor=$(jq -r .tab <<<"$created")
+
+tab git lazygit >/dev/null
+tab yazi yazi . >/dev/null
+if $docker; then tab docker lazydocker >/dev/null; fi
+
+agents=$(tab agents claude)
+claude=$(jq -r .terminal <<<"$agents")
+pane=$(herdr-app ls | jq -r --arg t "$claude" \
+  '[.spaces[].tabs[].terminals[] | select(.terminal == $t) | .pane][0] // empty')
+[[ -n $pane ]] || {
+  echo "Could not find the pane of terminal $claude." >&2
+  exit 1
+}
+app pane.split --pane "$pane" --direction right --argv "$(argv opencode)" >/dev/null
+
+app tab.select --id "$editor" >/dev/null

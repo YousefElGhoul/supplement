@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Open a herdr (TUI) workspace for the current folder with the dev tabs:
+# editor, git, yazi, docker (with --docker), and agents (claude | opencode).
+set -euo pipefail
+
+usage() {
+  echo "Usage: ${0##*/} [--docker]" >&2
+  exit 2
+}
+
+docker=false
+for arg in "$@"; do
+  case $arg in
+  --docker) docker=true ;;
+  *) usage ;;
+  esac
+done
+
+for tool in herdr jq; do
+  command -v "$tool" >/dev/null || {
+    echo "$tool is required." >&2
+    exit 1
+  }
+done
+
+folder=$PWD
+name=${folder##*/}
+
+# Run a herdr API command and print its JSON, or stop with its error.
+h() {
+  local out
+  out=$(herdr "$@" 2>&1) || {
+    printf 'herdr %s %s failed: %s\n' "$1" "$2" "$out" >&2
+    exit 1
+  }
+  printf '%s\n' "$out"
+}
+
+# Make a tab and type its command into the tab's shell.
+tab() {
+  local created
+  created=$(h tab create --workspace "$workspace" --cwd "$folder" --label "$1" --no-focus)
+  h pane run "$(jq -r .result.root_pane.pane_id <<<"$created")" "$2" >/dev/null
+  printf '%s\n' "$created"
+}
+
+created=$(h workspace create --cwd "$folder" --label "$name" --no-focus)
+workspace=$(jq -r .result.workspace.workspace_id <<<"$created")
+editor=$(jq -r .result.tab.tab_id <<<"$created")
+h tab rename "$editor" editor >/dev/null
+h pane run "$(jq -r .result.root_pane.pane_id <<<"$created")" "nvim ." >/dev/null
+
+tab git lazygit >/dev/null
+tab yazi "yazi ." >/dev/null
+if $docker; then tab docker lazydocker >/dev/null; fi
+
+agents=$(tab agents claude)
+split=$(h pane split "$(jq -r .result.root_pane.pane_id <<<"$agents")" \
+  --direction right --cwd "$folder" --no-focus)
+h pane run "$(jq -r .result.pane.pane_id <<<"$split")" opencode >/dev/null
+
+h workspace focus "$workspace" >/dev/null
+h tab focus "$editor" >/dev/null
