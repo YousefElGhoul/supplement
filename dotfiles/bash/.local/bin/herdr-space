@@ -44,11 +44,20 @@ tab() {
   printf '%s\n' "$created"
 }
 
-created=$(h workspace create --cwd "$folder" --label "$name" --no-focus)
-workspace=$(jq -r .result.workspace.workspace_id <<<"$created")
-editor=$(jq -r .result.tab.tab_id <<<"$created")
+# Inside herdr, take over the current workspace and tab; outside, make a new one.
+if [[ -n ${HERDR_WORKSPACE_ID-} && -n ${HERDR_TAB_ID-} ]]; then
+  inside=true
+  workspace=$HERDR_WORKSPACE_ID
+  editor=$HERDR_TAB_ID
+  h workspace rename "$workspace" "$name" >/dev/null
+else
+  inside=false
+  created=$(h workspace create --cwd "$folder" --label "$name" --no-focus)
+  workspace=$(jq -r .result.workspace.workspace_id <<<"$created")
+  editor=$(jq -r .result.tab.tab_id <<<"$created")
+  h pane run "$(jq -r .result.root_pane.pane_id <<<"$created")" "nvim ." >/dev/null
+fi
 h tab rename "$editor" editor >/dev/null
-h pane run "$(jq -r .result.root_pane.pane_id <<<"$created")" "nvim ." >/dev/null
 
 tab git lazygit >/dev/null
 tab yazi "yazi ." >/dev/null
@@ -62,5 +71,6 @@ h pane run "$(jq -r .result.pane.pane_id <<<"$split")" opencode >/dev/null
 h workspace focus "$workspace" >/dev/null
 h tab focus "$editor" >/dev/null
 
-# Outside herdr, attach to the session so the new workspace is on screen.
-if [[ -z ${HERDR_PANE_ID-} ]]; then exec herdr; fi
+# Inside herdr, this pane becomes the editor; outside, attach to show the workspace.
+if $inside; then exec nvim .; fi
+exec herdr
