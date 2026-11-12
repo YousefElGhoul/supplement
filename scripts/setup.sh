@@ -106,9 +106,11 @@ if $dry_run; then
     echo 'Stow preview reported conflicts; review them before setup.' >&2
   fi
   run "$repo_dir/scripts/configs/install-bash-hook.sh"
+  $no_pkg || "$repo_dir/scripts/configs/install-skills.sh" --dry-run
 else
   "$repo_dir/scripts/stow.sh"
   "$repo_dir/scripts/configs/install-bash-hook.sh"
+  $no_pkg || "$repo_dir/scripts/configs/install-skills.sh"
 fi
 
 if $omarchy; then

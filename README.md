@@ -32,6 +32,12 @@ instructions. Commit and pull request attribution is disabled. Credentials,
 `~/.claude.json`, the Omarchy-generated theme, plugins and account connectors
 are not tracked; log in again after a reinstall.
 
+Agent skills are not stored here. `scripts/packages/skills.txt` lists each
+skill's upstream source, and `./scripts/configs/install-skills.sh` installs them
+with the `skills` CLI into `~/.agents/skills`, linked for OpenCode and Claude
+Code. Run it again at any time to update every skill; setup runs it unless
+`--no-pkg` is given. Local edits to installed skills are overwritten.
+
 Herdr's tracked package includes personal settings/keys, the Ghoul layout,
 Catppuccin Mocha palette, and the GitHub/Git/Lazygit/Markdown mods it needs. Upstream
 notices/recipes are under `third-party/herdr/`. Install Herdr separately.

@@ -1,0 +1,8 @@
+# Agent skills installed from upstream: <source> <skill>
+mattpocock/skills grilling
+mattpocock/skills grill-me
+mattpocock/skills diagnosing-bugs
+vercel-labs/skills find-skills
+anthropics/skills frontend-design
+tt-a1i/archify archify
+DietrichGebert/ponytail ponytail
