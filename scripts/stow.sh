@@ -29,25 +29,6 @@ if ! command -v stow >/dev/null; then
   exit 1
 fi
 
-conflicts=(
-  "$HOME/.config/hypr/hyprsunset.conf"
-  "$HOME/.config/mise/config.toml"
-  "$HOME/.config/omarchy/shell.json"
-  "$HOME/.config/tmux/tmux.conf"
-)
-for target in "${conflicts[@]}"; do
-  [[ -L $target ]] && continue
-  [[ -e $target ]] || continue
-  [[ -f $target ]] || { echo "Unexpected Stow conflict: $target is not a regular file." >&2; exit 1; }
-  backup="$target.bak"
-  [[ ! -e $backup && ! -L $backup ]] || { echo "Backup already exists; refusing to replace it: $backup" >&2; exit 1; }
-  if $dry_run; then
-    printf '[dry-run] mv %q %q\n' "$target" "$backup"
-  else
-    mv -- "$target" "$backup"
-  fi
-done
-
-args=(-d "$repo_dir/dotfiles" -t "$HOME" --no-folding --ignore='(^|/)(server|github-pat)\.env$')
-$dry_run && args+=(--simulate)
-stow "${args[@]}" "${packages[@]}"
+args=()
+$dry_run && args+=(--dry-run)
+python3 "$repo_dir/scripts/configs/deploy-stow.py" "${args[@]}" "${packages[@]}"
