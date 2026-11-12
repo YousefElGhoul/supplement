@@ -25,6 +25,14 @@ settings. Deployment backs up and retires legacy `tui.json(c)` and duplicate
 loads its `herdr-opencode` entrypoint. Credentials (`*.env`), `service.json`,
 dependencies and runtime state are not deployed.
 
+Claude Code mirrors the OpenCode setup from `dotfiles/claude`: `settings.json`
+(model, Git allow/deny rules, Herdr session hook), Herdr's hook script and a
+`CLAUDE.md` that imports OpenCode's `AGENTS.md`, so both agents share one set of
+instructions. Deployment also links the shared `~/.agents/skills` listed in
+`CLAUDE_SKILLS` (`deploy-stow.py`) into `~/.claude/skills`. Credentials,
+`~/.claude.json`, the Omarchy-generated theme, plugins and account connectors
+are not tracked; log in again after a reinstall.
+
 Herdr's tracked package includes personal settings/keys, the Ghoul layout,
 Catppuccin Mocha palette, and the GitHub/Git/Lazygit/Markdown mods it needs. Upstream
 notices/recipes are under `third-party/herdr/`. Install Herdr separately.

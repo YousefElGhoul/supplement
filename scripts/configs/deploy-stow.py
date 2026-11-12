@@ -132,7 +132,28 @@ def deploy_herdr(repo, home, dry_run=False):
     print(f"Verified Herdr root Stow symlink: {target}")
 
 
+CLAUDE_SKILLS = ("archify", "find-skills", "frontend-design", "ponytail")
+
+
+def link_claude_skills(repo, home, dry_run=False):
+    """Expose the shared ~/.agents skills to Claude Code through relative links."""
+    for name in CLAUDE_SKILLS:
+        if not (repo / "dotfiles/opencode/.agents/skills" / name).is_dir():
+            continue
+        shared = home / ".agents/skills" / name
+        link = home / ".claude/skills" / name
+        if present(link):
+            if not link.is_symlink() or link.resolve() != shared.resolve():
+                raise RuntimeError(f"Claude skill needs manual review: {link}")
+        elif dry_run:
+            print(f"[dry-run] link Claude skill: {link}")
+        else:
+            link.parent.mkdir(parents=True, exist_ok=True)
+            link.symlink_to(os.path.relpath(shared, link.parent))
+
+
 def deploy(repo, home, packages, dry_run=False):
+    claude = "claude" in packages and "opencode" in packages
     if "herdr-app" in packages:
         deploy_herdr(repo, home, dry_run)
         packages = [package for package in packages if package != "herdr-app"]
@@ -232,6 +253,8 @@ def deploy(repo, home, packages, dry_run=False):
     ]
     commands = [command + ["--no-folding"] + packages]
     if dry_run:
+        if claude:
+            link_claude_skills(repo, home, dry_run)
         if conflicts:
             # Stow cannot simulate removal of targets that still exist.
             print(
@@ -258,6 +281,8 @@ def deploy(repo, home, packages, dry_run=False):
     ]
     if invalid:
         raise RuntimeError("Symlink verification failed:\n" + "\n".join(invalid))
+    if claude:
+        link_claude_skills(repo, home)
     print(f"Verified {len(files)} Stow symlinks across {len(packages)} packages.")
 
 

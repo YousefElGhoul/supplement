@@ -205,6 +205,35 @@ class DeploymentTests(unittest.TestCase):
                 module.deploy(repo, home, ["herdr-app"])
             self.assertFalse(target.is_symlink())
 
+    def test_claude_skills_link_to_shared_agents_skills(self):
+        with tempfile.TemporaryDirectory(dir="/tmp/opencode") as temp:
+            root = Path(temp)
+            repo, home = root / "repo", root / "home"
+            skill = repo / "dotfiles/opencode/.agents/skills/ponytail"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("skill")
+            claude = repo / "dotfiles/claude/.claude"
+            claude.mkdir(parents=True)
+            (claude / "settings.json").write_text("{}")
+            (home / ".claude").mkdir(parents=True)
+            (home / ".claude/settings.json").write_text("local")
+            link = home / ".claude/skills/ponytail"
+            with patch.dict(os.environ, {"XDG_STATE_HOME": str(root / "state")}):
+                module.deploy(repo, home, ["claude", "opencode"], dry_run=True)
+                self.assertFalse(link.is_symlink())
+                module.deploy(repo, home, ["claude", "opencode"])
+                module.deploy(repo, home, ["claude", "opencode"])
+            self.assertFalse(Path(os.readlink(link)).is_absolute())
+            self.assertEqual((link / "SKILL.md").read_text(), "skill")
+            self.assertEqual((home / ".claude/settings.json").read_text(), "{}")
+            link.unlink()
+            link.mkdir()
+            with (
+                patch.dict(os.environ, {"XDG_STATE_HOME": str(root / "state")}),
+                self.assertRaisesRegex(RuntimeError, "manual review"),
+            ):
+                module.deploy(repo, home, ["claude", "opencode"])
+
     def test_existing_folded_package_link(self):
         with tempfile.TemporaryDirectory(dir="/tmp/opencode") as temp:
             root = Path(temp)
