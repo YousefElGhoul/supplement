@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Exercise deployment against a disposable home, never the real config."""
 
-import importlib.util
 import os
 import socket
 import subprocess
@@ -11,11 +10,22 @@ import unittest
 from unittest.mock import patch
 
 
-spec = importlib.util.spec_from_file_location(
-    "deploy_stow", Path(__file__).parents[1] / "configs/deploy-stow.py"
-)
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+SCRIPT = Path(__file__).parents[1] / "stow.sh"
+
+
+def deploy(repo, home, dry_run=False, path=None):
+    """Run the Bash deployment against a disposable repository and home."""
+    env = {**os.environ, "HOME": str(home), "SUPPLEMENT_REPO": str(repo)}
+    if path:
+        env["PATH"] = f"{path}:{env['PATH']}"
+    result = subprocess.run(
+        ["bash", str(SCRIPT), *(["--dry-run"] if dry_run else [])],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        raise RuntimeError(result.stderr)
 
 
 class DeploymentTests(unittest.TestCase):
@@ -39,10 +49,10 @@ class DeploymentTests(unittest.TestCase):
             (target / "broken").symlink_to(root / "missing")
             (target / "service.json").write_text("local state")
             with patch.dict(os.environ, {"XDG_STATE_HOME": str(state)}):
-                module.deploy(repo, home, ["opencode"], dry_run=True)
+                deploy(repo, home, dry_run=True)
                 self.assertEqual((target / "cli.json").read_text(), "local")
                 self.assertFalse(state.exists())
-                module.deploy(repo, home, ["opencode"])
+                deploy(repo, home)
                 backups = list((state / "supplement/backups").iterdir())
                 self.assertEqual(len(backups), 1)
                 saved = backups[0] / ".config/opencode"
@@ -50,11 +60,11 @@ class DeploymentTests(unittest.TestCase):
                 self.assertTrue((saved / "wrong").is_symlink())
                 self.assertTrue((saved / "broken").is_symlink())
                 self.assertTrue((saved / "tui.jsonc").is_file())
-                module.deploy(repo, home, ["opencode"])
+                deploy(repo, home)
                 self.assertEqual(
                     list((state / "supplement/backups").iterdir()), backups
                 )
-                module.deploy(repo, home, ["opencode"], dry_run=True)
+                deploy(repo, home, dry_run=True)
             self.assertEqual(outside.read_text(), "do not touch")
             self.assertEqual((target / "cli.json.bak").read_text(), "old backup")
             self.assertEqual((target / "service.json").read_text(), "local state")
@@ -74,13 +84,13 @@ class DeploymentTests(unittest.TestCase):
             home.mkdir()
             (home / ".config").symlink_to(outside, target_is_directory=True)
             with patch.dict(os.environ, {"XDG_STATE_HOME": str(root / "state")}):
-                module.deploy(repo, home, ["test"])
+                deploy(repo, home)
                 self.assertFalse((home / ".config").is_symlink())
                 self.assertEqual((outside / "untouched").read_text(), "safe")
                 (home / ".config/app/file").unlink()
                 (home / ".config/app/file").mkdir()
                 (home / ".config/app/file/keep").write_text("keep")
-                module.deploy(repo, home, ["test"])
+                deploy(repo, home)
                 self.assertEqual(
                     len(list((root / "state/supplement/backups").iterdir())), 2
                 )
@@ -111,13 +121,13 @@ class DeploymentTests(unittest.TestCase):
             (target / "shared.json").write_text('{"layout":"ghoul"}')
             (target / "settings.json").write_text("local preferences")
             with patch.dict(os.environ, {"XDG_STATE_HOME": str(root / "state")}):
-                module.deploy(repo, home, ["herdr-app"], dry_run=True)
+                deploy(repo, home, dry_run=True)
                 self.assertFalse(target.is_symlink())
                 self.assertFalse((base / "shared.json").exists())
                 self.assertFalse((root / "state").exists())
-                module.deploy(repo, home, ["herdr-app"])
+                deploy(repo, home)
                 inode = target.lstat().st_ino
-                module.deploy(repo, home, ["herdr-app"])
+                deploy(repo, home)
             self.assertTrue(target.is_symlink())
             self.assertEqual(target.lstat().st_ino, inode)
             self.assertFalse((target / "mods/example").is_symlink())
@@ -159,7 +169,7 @@ class DeploymentTests(unittest.TestCase):
                 server.bind(str(target / "herdr-app.sock"))
                 server.listen()
                 with self.assertRaisesRegex(RuntimeError, "Close the Herdr window"):
-                    module.deploy(repo, home, ["herdr-app"])
+                    deploy(repo, home)
             self.assertFalse(target.is_symlink())
 
     def test_herdr_stow_failure_restores_original_root(self):
@@ -173,16 +183,15 @@ class DeploymentTests(unittest.TestCase):
             retired = repo / "dotfiles/herdr-app/.config/herdr-app/mods/tabs-github"
             retired.mkdir(parents=True)
             (retired / "main.js").write_text("restore on failure")
+            fake = root / "bin"
+            fake.mkdir()
+            (fake / "stow").write_text("#!/bin/sh\nexit 1\n")
+            (fake / "stow").chmod(0o755)
             with (
                 patch.dict(os.environ, {"XDG_STATE_HOME": str(root / "state")}),
-                patch.object(
-                    module.subprocess,
-                    "run",
-                    side_effect=subprocess.CalledProcessError(1, "stow"),
-                ),
-                self.assertRaises(subprocess.CalledProcessError),
+                self.assertRaisesRegex(RuntimeError, "original config root was restored"),
             ):
-                module.deploy(repo, home, ["herdr-app"])
+                deploy(repo, home, path=fake)
             self.assertFalse(target.is_symlink())
             self.assertEqual((target / "shared.json").read_text(), "preserve")
             self.assertEqual((retired / "main.js").read_text(), "restore on failure")
@@ -194,7 +203,7 @@ class DeploymentTests(unittest.TestCase):
             source = repo / "dotfiles/herdr-app/.config/herdr-app"
             source.mkdir(parents=True)
             (source / "settings.json").write_text("{}")
-            module.deploy(repo, home, ["herdr-app"])
+            deploy(repo, home)
             target = home / ".config/herdr-app"
             self.assertTrue(target.is_symlink())
             self.assertEqual(target.resolve(), source.resolve())
@@ -202,37 +211,8 @@ class DeploymentTests(unittest.TestCase):
             target.mkdir()
             (target / "outside").symlink_to(root / "outside")
             with self.assertRaisesRegex(RuntimeError, "Unexpected Herdr symlink"):
-                module.deploy(repo, home, ["herdr-app"])
+                deploy(repo, home)
             self.assertFalse(target.is_symlink())
-
-    def test_claude_skills_link_to_shared_agents_skills(self):
-        with tempfile.TemporaryDirectory(dir="/tmp/opencode") as temp:
-            root = Path(temp)
-            repo, home = root / "repo", root / "home"
-            skill = repo / "dotfiles/opencode/.agents/skills/ponytail"
-            skill.mkdir(parents=True)
-            (skill / "SKILL.md").write_text("skill")
-            claude = repo / "dotfiles/claude/.claude"
-            claude.mkdir(parents=True)
-            (claude / "settings.json").write_text("{}")
-            (home / ".claude").mkdir(parents=True)
-            (home / ".claude/settings.json").write_text("local")
-            link = home / ".claude/skills/ponytail"
-            with patch.dict(os.environ, {"XDG_STATE_HOME": str(root / "state")}):
-                module.deploy(repo, home, ["claude", "opencode"], dry_run=True)
-                self.assertFalse(link.is_symlink())
-                module.deploy(repo, home, ["claude", "opencode"])
-                module.deploy(repo, home, ["claude", "opencode"])
-            self.assertFalse(Path(os.readlink(link)).is_absolute())
-            self.assertEqual((link / "SKILL.md").read_text(), "skill")
-            self.assertEqual((home / ".claude/settings.json").read_text(), "{}")
-            link.unlink()
-            link.mkdir()
-            with (
-                patch.dict(os.environ, {"XDG_STATE_HOME": str(root / "state")}),
-                self.assertRaisesRegex(RuntimeError, "manual review"),
-            ):
-                module.deploy(repo, home, ["claude", "opencode"])
 
     def test_existing_folded_package_link(self):
         with tempfile.TemporaryDirectory(dir="/tmp/opencode") as temp:
@@ -244,7 +224,7 @@ class DeploymentTests(unittest.TestCase):
             (home / ".config").mkdir(parents=True)
             (home / ".config/app").symlink_to(source)
             with patch.dict(os.environ, {"XDG_STATE_HOME": str(root / "state")}):
-                module.deploy(repo, home, ["test"])
+                deploy(repo, home)
             self.assertEqual((source / "settings").read_text(), "safe")
             self.assertTrue((root / "state").exists())
             self.assertFalse((home / ".config/app").is_symlink())
@@ -261,15 +241,8 @@ class DeploymentTests(unittest.TestCase):
             target.parent.mkdir(parents=True)
             target.symlink_to(os.path.relpath(source, target.parent))
             inode = target.lstat().st_ino
-            with (
-                patch.dict(os.environ, {"XDG_STATE_HOME": str(root / "state")}),
-                patch.object(
-                    module.shutil,
-                    "move",
-                    side_effect=AssertionError("must not move valid links"),
-                ),
-            ):
-                module.deploy(repo, home, ["hyprland"])
+            with patch.dict(os.environ, {"XDG_STATE_HOME": str(root / "state")}):
+                deploy(repo, home)
             self.assertEqual(target.lstat().st_ino, inode)
             self.assertEqual(
                 (target / "hyprland_overrides.lua").read_text(), "-- config"

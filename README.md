@@ -17,7 +17,7 @@ application directory. Backups go
 to `${XDG_STATE_HOME:-~/.local/state}/supplement/backups/stow-*`, with a unique
 directory per run; old `.bak` files are left alone. Dry runs change no targets
 and report planned backups (Stow simulation runs when no backups are needed).
-Python 3 and GNU Stow are required.
+Deployment needs only Bash, GNU Stow and coreutils; Python is used for tests only.
 
 OpenCode uses `cli.json` for terminal settings and `opencode.jsonc` for server
 settings. Deployment backs up and retires legacy `tui.json(c)` and duplicate
@@ -28,9 +28,7 @@ dependencies and runtime state are not deployed.
 Claude Code mirrors the OpenCode setup from `dotfiles/claude`: `settings.json`
 (model, Git allow/deny rules, Herdr session hook), Herdr's hook script and a
 `CLAUDE.md` that imports OpenCode's `AGENTS.md`, so both agents share one set of
-instructions. Deployment also links the shared `~/.agents/skills` listed in
-`CLAUDE_SKILLS` (`deploy-stow.py`) into `~/.claude/skills`. Commit and pull request
-attribution is disabled. Credentials,
+instructions. Commit and pull request attribution is disabled. Credentials,
 `~/.claude.json`, the Omarchy-generated theme, plugins and account connectors
 are not tracked; log in again after a reinstall.
 
