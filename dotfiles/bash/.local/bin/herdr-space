@@ -61,3 +61,6 @@ h pane run "$(jq -r .result.pane.pane_id <<<"$split")" opencode >/dev/null
 
 h workspace focus "$workspace" >/dev/null
 h tab focus "$editor" >/dev/null
+
+# Outside herdr, attach to the session so the new workspace is on screen.
+if [[ -z ${HERDR_PANE_ID-} ]]; then exec herdr; fi
