@@ -19,6 +19,12 @@ directory per run; old `.bak` files are left alone. Dry runs change no targets
 and report planned backups (Stow simulation runs when no backups are needed).
 Python 3 and GNU Stow are required.
 
+OpenCode uses `cli.json` for terminal settings and `opencode.jsonc` for server
+settings. Deployment backs up and retires legacy `tui.json(c)` and duplicate
+`cli.jsonc` files. Herdr's integration source is included because `cli.json`
+loads its `herdr-opencode` entrypoint. Credentials (`*.env`), `service.json`,
+dependencies and runtime state are not deployed.
+
 To recover a backup, inspect its matching relative path, remove only the
 corresponding deployed symlink, then move the backed-up file into its place.
 Do not restore an entire config directory over a running application's state.
