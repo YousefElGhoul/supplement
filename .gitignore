@@ -1,3 +1,25 @@
 *.env
 __pycache__/
 *.py[cod]
+# Herdr writes defaults and runtime state into its Stow-linked root.
+dotfiles/herdr-app/.config/herdr-app/*
+!dotfiles/herdr-app/.config/herdr-app/settings.json
+!dotfiles/herdr-app/.config/herdr-app/keys.json
+!dotfiles/herdr-app/.config/herdr-app/layouts/
+!dotfiles/herdr-app/.config/herdr-app/themes/
+!dotfiles/herdr-app/.config/herdr-app/mods/
+dotfiles/herdr-app/.config/herdr-app/layouts/*
+!dotfiles/herdr-app/.config/herdr-app/layouts/ghoul.json
+!dotfiles/herdr-app/.config/herdr-app/layouts/ghoul.svg
+dotfiles/herdr-app/.config/herdr-app/themes/*
+!dotfiles/herdr-app/.config/herdr-app/themes/catppuccin-mocha.json
+dotfiles/herdr-app/.config/herdr-app/mods/*
+!dotfiles/herdr-app/.config/herdr-app/mods/tabs-ghoul/
+!dotfiles/herdr-app/.config/herdr-app/mods/github/
+!dotfiles/herdr-app/.config/herdr-app/mods/git/
+!dotfiles/herdr-app/.config/herdr-app/mods/lazygit-button/
+!dotfiles/herdr-app/.config/herdr-app/mods/lazygit-panel/
+!dotfiles/herdr-app/.config/herdr-app/mods/markdown-panel/
+dotfiles/herdr-app/.config/herdr-app/mods/**/*.d.ts
+dotfiles/herdr-app/.config/herdr-app/mods/**/jsconfig.json
+dotfiles/herdr-app/.config/herdr-app/mods/**/*.error
