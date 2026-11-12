@@ -44,9 +44,27 @@ tab() {
   app tab.new --space "$space" --name "$label" --folder "$folder" --argv "$(argv "$@")"
 }
 
-created=$(app space.new --name "$name" --folder "$folder" --tab editor --argv "$(argv nvim .)")
-space=$(jq -r .space <<<"$created")
-editor=$(jq -r .tab <<<"$created")
+# Inside a herdr-app tab, take over its space and tab; otherwise make a new space.
+# Skipped under the herdr TUI, whose panes are not this terminal.
+here=''
+if [[ -n ${HC_TERMINAL_ID-} && -z ${HERDR_PANE_ID-} ]]; then
+  here=$(herdr-app ls | jq -c --arg t "$HC_TERMINAL_ID" \
+    '[.spaces[] | .id as $s | .tabs[] | select(any(.terminals[]; .terminal == $t))
+      | {space: $s, tab: .id}][0] // empty')
+fi
+
+if [[ -n $here ]]; then
+  inside=true
+  space=$(jq -r .space <<<"$here")
+  editor=$(jq -r .tab <<<"$here")
+  app space.rename --id "$space" --name "$name" >/dev/null
+  app tab.rename --id "$editor" --name editor >/dev/null
+else
+  inside=false
+  created=$(app space.new --name "$name" --folder "$folder" --tab editor --argv "$(argv nvim .)")
+  space=$(jq -r .space <<<"$created")
+  editor=$(jq -r .tab <<<"$created")
+fi
 
 tab git lazygit >/dev/null
 tab yazi yazi . >/dev/null
@@ -63,3 +81,6 @@ pane=$(herdr-app ls | jq -r --arg t "$claude" \
 app pane.split --pane "$pane" --direction right --argv "$(argv opencode)" >/dev/null
 
 app tab.select --id "$editor" >/dev/null
+
+# Inside herdr-app, this terminal becomes the editor.
+if $inside; then exec nvim .; fi
