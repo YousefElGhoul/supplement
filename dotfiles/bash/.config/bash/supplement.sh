@@ -1,8 +1,8 @@
 # Personal interactive Bash customizations. Omarchy initializes before this file.
 
 case ":$PATH:" in
-  *":$HOME/.local/bin:"*) ;;
-  *) export PATH="$HOME/.local/bin:$PATH" ;;
+*":$HOME/.local/bin:"*) ;;
+*) export PATH="$HOME/.local/bin:$PATH" ;;
 esac
 
 # Load Angular CLI autocompletion.
@@ -22,6 +22,9 @@ alias tdadev='tmuxp load tablet-ai-docker-dev'
 
 alias edit='NVIM_APPNAME=nvim-ghoul nvim'
 alias mdedit='NVIM_APPNAME=nvim-markdown nvim'
+
+alias serve='npx live-server --host=0.0.0.0 --port=5500 --no-browser'
+alias tailnet-serve='npx live-server --host="$(tailscale ip -4)" --port=5500 --no-browser'
 
 alias editrc='nvim ~/.bashrc'
 alias rsource='source ~/.bashrc'
