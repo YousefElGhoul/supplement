@@ -1,5 +1,8 @@
 {
-  "model": "fable",
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "permissions": {
     "allow": [
       "Bash(git status *)",
@@ -14,6 +17,7 @@
       "Bash(git push -f *)"
     ]
   },
+  "model": "opus",
   "hooks": {
     "SessionStart": [
       {
@@ -27,10 +31,6 @@
         ]
       }
     ]
-  },
-  "attribution": {
-    "commit": "",
-    "pr": ""
   },
   "theme": "custom:omarchy"
 }
