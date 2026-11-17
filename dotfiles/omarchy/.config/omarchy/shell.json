@@ -75,12 +75,6 @@
     },
     "position": "top"
   },
-  "cloneSourceRestores": [
-    "monitor-layout"
-  ],
-  "disabledPlugins": [
-    "omarchy.monitor"
-  ],
   "dock": {
     "pinned": [
       "org.gnome.Nautilus",
@@ -97,5 +91,11 @@
     "screensaver": 150
   },
   "plugins": [],
-  "version": 1
+  "version": 1,
+  "disabledPlugins": [
+    "omarchy.monitor"
+  ],
+  "cloneSourceRestores": [
+    "monitor-layout"
+  ]
 }
