@@ -18,7 +18,6 @@
     ],
     "defaultMode": "auto"
   },
-  "model": "opus",
   "hooks": {
     "SessionStart": [
       {
@@ -33,5 +32,15 @@
       }
     ]
   },
-  "theme": "custom:omarchy"
+  "workflowKeywordTriggerEnabled": false,
+  "feedbackDrafts": "notify",
+  "syntaxHighlightingDisabled": false,
+  "timeFormat": "24-hour",
+  "theme": "custom:omarchy",
+  "editorMode": "normal",
+  "preferredNotifChannel": "auto",
+  "autoContinueAtUsageLimit": true,
+  "remoteControlAtStartup": true,
+  "agentPushNotifEnabled": true,
+  "model": "opus"
 }
