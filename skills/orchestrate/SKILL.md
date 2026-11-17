@@ -1,11 +1,16 @@
 ---
 name: orchestrate
-description: Coordinate worker agents through hc. Use when the user asks to orchestrate, coordinate, or delegate work to agents, including requests like "orchestrate <model> through <harness>". Accept natural phrasing; discussing orchestration alone is not permission to launch workers.
+description: Coordinate worker agents through Herdr. Use when the user asks to orchestrate, coordinate, or delegate work to agents, including requests like "orchestrate <model> through <harness>". Accept natural phrasing; discussing orchestration alone is not permission to launch workers.
 ---
 
 # Orchestrate
 
-Read `hc --skill` and follow its current guidance for launching, communicating with, waiting for, and cleaning up workers. Use the installed manual rather than hardcoding its mechanics here.
+Use the appropriate official Herdr skill for execution mechanics; do not duplicate its command instructions here:
+
+- **Herdr TUI:** [`herdr`](https://github.com/herdrdev/herdr/blob/master/skills/herdr/SKILL.md), installed with `npx skills add herdrdev/herdr --skill herdr -g`. It orchestrates through `herdr`.
+- **Herdr GUI/Core:** [`herdr-core`](https://github.com/herdrdev/herdr-core/blob/master/skills/herdr-core/SKILL.md), installed with `npx skills add herdrdev/herdr-core --skill herdr-core -g`. It orchestrates through `hc`; use `herdr-app` only for visible window layout and controls.
+
+Honor the environment the user requests. If it is unclear from the request and session context, clarify before proceeding.
 
 ## Prepare
 
@@ -29,7 +34,7 @@ Do not bypass planning restrictions by delegating implementation to workers.
 
 ## Coordinate
 
-Once approved and permitted, write the briefs and orchestrate through `hc`. Delegate implementation, including integration fixes, unless authorized to implement yourself.
+Once approved and permitted, write the briefs and orchestrate through the selected Herdr environment. Delegate implementation, including integration fixes, unless authorized to implement yourself.
 
 Choose direct inspection and verification, reviewer workers, or both according to task complexity. Propose reviewer models separately where useful, including different models for independent review. Verify actual results rather than accepting a worker's completion claim alone.
 
