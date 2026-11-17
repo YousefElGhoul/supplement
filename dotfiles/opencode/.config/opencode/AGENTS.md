@@ -13,6 +13,12 @@ Do not use for: refactoring, writing scripts from scratch, debugging business lo
 
 
 
+## Playwright MCP
+
+Playwright runs in Docker. To access this project's live server on host port 5500,
+use `http://172.17.0.1:5500/` instead of `http://127.0.0.1:5500/`.
+Inside the container, `localhost` refers to the container itself.
+
 ## Git Workflow
 
 - Never stage, commit, switch branches, merge, rebase, reset, or push without my explicit approval.
@@ -43,4 +49,3 @@ Rules:
 - Describe what actually changed, not what was merely planned.
 - Do not include unrelated changes.
 - Never commit automatically, even after successful tests.
-
