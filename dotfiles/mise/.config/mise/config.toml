@@ -7,7 +7,12 @@ playwright = "latest"
 gh = "latest"
 npm = "latest"
 copilot = "latest"
-vercel = { version = "latest", trust_policy_excludes = ["vercel@65.12.1"] }
+pnpm = "latest"
+"npm:vercel" = "latest"
+go = "latest"
 
 [settings.upgrade]
-auto_prune = false
+auto_prune = true
+
+[settings]
+npm.package_manager = "pnpm"
