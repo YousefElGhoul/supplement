@@ -37,8 +37,11 @@ hl.unbind("SUPER + SHIFT + C")
 hl.unbind("SUPER + CTRL + ALT + D")
 o.bind("SUPER + SHIFT + C", "Calendar", "omarchy-shell shell toggle omarchy.clock")
 
+-- herdr-app
+o.bind("SUPER + H", "Herdr", { launch = "herdr-app" })
+
 -- Hermes Desktop
-o.bind("SUPER + H", "Hermes Desktop", { launch = "hermes-desktop" })
+o.bind("SUPER + SHIFT + H", "Hermes Desktop", { launch = "hermes-desktop" })
 
 -- Switch behavior of Super + Space and Super + Alt + Space
 hl.unbind("SUPER + SPACE")
