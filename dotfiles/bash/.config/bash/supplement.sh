@@ -32,7 +32,8 @@ alias mdedit='NVIM_APPNAME=nvim-markdown nvim'
 alias serve='npx live-server --host=0.0.0.0 --port=5500 --no-browser'
 alias tailnet-serve='npx live-server --host="$(tailscale ip -4)" --port=5500 --no-browser'
 
-alias editrc='nvim ~/.bashrc'
+alias edit-rc='nvim ~/.bashrc'
+alias edit-my-rc='nvim ~/supplement/dotfiles/bash/.config/bash/supplement.sh'
 alias rsource='source ~/.bashrc'
 
 alias virt-manager='/usr/bin/python /usr/bin/virt-manager'
