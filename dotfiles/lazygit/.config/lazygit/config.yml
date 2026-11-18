@@ -1,0 +1,14 @@
+customCommands:
+  - key: "<c-a>"
+    context: "files"
+    description: "Suggest AI commit messages"
+    prompts:
+      - type: "menuFromCommand"
+        title: "AI Commit Suggestions"
+        key: "Msg"
+        command: "lazycommit commit"
+        filter: "^(?P<raw>.+)$"
+        valueFormat: "{{ .raw }}"
+        labelFormat: "{{ .raw }}"
+    command: 'git commit -e -m "{{.Form.Msg}}"'
+    output: terminal
