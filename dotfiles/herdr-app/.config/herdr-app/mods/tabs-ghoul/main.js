@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings, nextCommand } from "herdr";
+import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -15,11 +15,6 @@ export default class Tabs extends View {
   init(_props, cx) {
     this.pressed = null;
     this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
-    cx.spawn(async (cx) => {
-      for (;;) {
-        if (await nextCommand() === "markdown") this.togglePanel("markdown");
-      }
-    });
   }
 
   togglePanel(id) {
@@ -88,7 +83,7 @@ export default class Tabs extends View {
       ? Math.max(10, (root.traffic_lights[0] + 64) / settings().zoom - (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 0))
       : 10;
     const panel = find(root, "panel"), body = find(root, "panel-body");
-    const enabled = [...new Set([...(shared("workspace.panels") ?? ["files", "changes"]), "github", "lazygit", "markdown"])];
+    const enabled = [...new Set([...(shared("workspace.panels") ?? ["files", "changes"]), "github"])];
     this.syncPanel(space, panel, body, enabled);
     const panelButton = (id, label, icon) => {
       const on = panel && !panel.hidden && body?.active === id;
@@ -105,8 +100,6 @@ export default class Tabs extends View {
       .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg")))
       .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/changes/changes.svg")))
       .when(enabled.includes("github"), el => el.child(panelButton("github", "GitHub", "mods/github/icons/github.svg")))
-      .when(enabled.includes("lazygit"), el => el.child(panelButton("lazygit", "Lazygit", "mods/lazygit-button/lazygit.svg")))
-      .when(enabled.includes("markdown"), el => el.child(panelButton("markdown", "Markdown", "mods/markdown-panel/icons/markdown.svg")))
       .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/tabs-ghoul/win-min.svg").size(16) : "−", () => run("window.minimize")))
         .child(button("maximize", w.platform === "windows" ? svg(`mods/tabs-ghoul/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
         .child(button("close-window", w.platform === "windows" ? svg("mods/tabs-ghoul/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));

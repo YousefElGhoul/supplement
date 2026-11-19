@@ -60,10 +60,6 @@
     "f2": "tab.rename",
     "shift-f2": "space.rename"
   },
-  "layout:ghoul": {
-    "ctrl-shift-m": "tabs-ghoul.markdown",
-    "cmd-shift-m": "tabs-ghoul.markdown"
-  },
   "terminal": {
     "ctrl-backspace": "send:\u0017",
     "ctrl-left": "send:\u001bb",

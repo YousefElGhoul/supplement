@@ -24,5 +24,4 @@ Test:
 python3 scripts/tests/stow.py
 node scripts/tests/indicator-hover.cjs
 node scripts/tests/patch-nightlight.cjs
-node --experimental-vm-modules --test scripts/tests/markdown-panel.test.mjs
 ```
