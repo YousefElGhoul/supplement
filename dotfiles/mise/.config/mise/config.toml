@@ -1,15 +1,17 @@
 [tools]
 java = "latest"
 python = "latest"
-node = "26.12.0"
-opencode = { version = "latest", allow_builds = ["@opencode/cli"] }
-playwright = "latest"
-gh = "latest"
-npm = "latest"
-copilot = "latest"
-pnpm = "latest"
-"npm:vercel" = "latest"
 go = "latest"
+node = "latest"
+opencode = { version = "latest", allow_builds = ["@opencode/cli"] }
+claude = "latest"
+gh = "latest"
+copilot = "latest"
+npm = "latest"
+pnpm = "latest"
+vercel = "latest"
+playwright = "latest"
+gcloud = "latest"
 
 [settings.upgrade]
 auto_prune = true
