@@ -1,20 +1,26 @@
 [tools]
-java = "latest"
+java = ["latest", "25"]
 python = "latest"
+uv = "latest"
 go = "latest"
-node = "latest"
-opencode = { version = "latest", allow_builds = ["@opencode/cli"] }
-claude = "latest"
-gh = "latest"
+
+opencode = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s" }
+claude = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s" }
+codex = { version = "latest", lazy = true, auto_update = "4h", minimum_release_age = "0s" }
+pi = "latest"
+
 copilot = "latest"
+gh = "latest"
+ghui = "latest"
+
+node = "latest"
 npm = "latest"
 pnpm = "latest"
-vercel = "latest"
-playwright = "latest"
-gcloud = "latest"
 
-[settings.upgrade]
-auto_prune = true
+playwright = "latest"
+
+gcloud = "latest"
+vercel = "latest"
 
 [settings]
 npm.package_manager = "pnpm"
