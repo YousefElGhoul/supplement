@@ -33,6 +33,18 @@
         "type": "remote",
         "url": "https://mcp.postman.com/minimal",
         "disabled": true
+      },
+      "oci": {
+        "type": "local",
+        "command": [
+          "uvx",
+          "oracle.oci-cloud-mcp-server@latest"
+        ],
+        "environment": {
+          "OCI_CONFIG_PROFILE": "MCP",
+          "FASTMCP_LOG_LEVEL": "ERROR"
+        },
+        "disabled": true
       }
     }
   },
@@ -90,7 +102,7 @@
   ],
   "agents": {
     "plan": {
-      "model": "openai/gpt-6.1-sol"
+      "model": "openai/gpt-6.2-sol"
     },
     "build": {
       "model": "openai/gpt-6-luna"
