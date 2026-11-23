@@ -7,3 +7,5 @@ anthropics/skills frontend-design
 tt-a1i/archify archify
 DietrichGebert/ponytail ponytail
 alexyc9381/court-skill court
+herdrdev/herdr herdr
+herdrdev/herdr-core herdr-core
