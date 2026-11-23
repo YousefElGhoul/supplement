@@ -21,31 +21,6 @@ Inside the container, `localhost` refers to the container itself.
 
 ## Git Workflow
 
-- Never stage, commit, switch branches, merge, rebase, reset, or push without my explicit approval.
-- Read-only Git operations such as status, diff, and log are allowed without approval.
-- After completing an implementation, review the diff and propose a commit message.
-- Present the proposed commit message and ask for approval before staging or committing.
-- Stage only files relevant to the completed task.
-- Never include unrelated changes in a commit.
-- Never push unless explicitly requested and approved.
-
-### Commit Message Format
-
-Use Conventional Commits with a descriptive body:
-
-type(scope): concise imperative summary
-
-- Describe the first meaningful change
-- Describe the second meaningful change
-- Describe the third meaningful change
-
-Rules:
-- Choose the appropriate type: feat, fix, refactor, perf, docs, test, build, ci, or chore.
-- Use a short, meaningful scope when applicable.
-- Use the imperative mood in the subject.
-- Leave a blank line between the subject and body.
-- Use bullet points to describe concrete changes.
-- Include as many bullets as necessary, not necessarily three.
-- Describe what actually changed, not what was merely planned.
-- Do not include unrelated changes.
-- Never commit automatically, even after successful tests.
+- Review diffs and stage only relevant changes; never include unrelated work.
+- Commit or push only when explicitly asked. Do not suggest or ask about either unprompted.
+- Use Conventional Commit messages with a concise subject and a descriptive, factual bullet body.
