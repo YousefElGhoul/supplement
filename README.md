@@ -18,10 +18,15 @@ Install or update agent skills:
 ./scripts/configs/install-skills.sh
 ```
 
-Test:
+## Token Monitor
+
+See the [headless agent setup and service guide](dotfiles/token-monitor/.local/share/doc/token-monitor/README.md).
+
+## Tests
 
 ```bash
 python3 scripts/tests/stow.py
+python3 scripts/tests/token-monitor.py
 node scripts/tests/indicator-hover.cjs
 node scripts/tests/patch-nightlight.cjs
 ```

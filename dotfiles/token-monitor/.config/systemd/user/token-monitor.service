@@ -1,0 +1,15 @@
+[Unit]
+Description=Token Monitor headless agent
+ConditionFileNotEmpty=%h/.config/token-monitor/hub.secret
+
+[Service]
+Type=exec
+LoadCredential=hub.secret:%h/.config/token-monitor/hub.secret
+ExecStart=%h/.local/bin/token-monitor-agent
+Restart=always
+RestartPreventExitStatus=78
+RestartSec=10
+UMask=0077
+
+[Install]
+WantedBy=default.target

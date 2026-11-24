@@ -12,12 +12,14 @@ pi = "latest"
 copilot = "latest"
 gh = "latest"
 ghui = "latest"
+"npm:cf" = { version = "latest", lazy = true, lazy_bins = ["cf"], minimum_release_age = "0s" }
 
 node = "latest"
 npm = "latest"
 pnpm = "latest"
 
 playwright = "latest"
+"pypi:huggingface_hub" = "latest"
 
 gcloud = "latest"
 vercel = "latest"

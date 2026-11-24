@@ -107,10 +107,12 @@ if $dry_run; then
   fi
   run "$repo_dir/scripts/configs/install-bash-hook.sh"
   $no_pkg || "$repo_dir/scripts/configs/install-skills.sh" --dry-run
+  $no_pkg || "$repo_dir/scripts/configs/install-token-monitor.sh" --dry-run
 else
   "$repo_dir/scripts/stow.sh"
   "$repo_dir/scripts/configs/install-bash-hook.sh"
   $no_pkg || "$repo_dir/scripts/configs/install-skills.sh"
+  $no_pkg || "$repo_dir/scripts/configs/install-token-monitor.sh"
 fi
 
 if $omarchy; then

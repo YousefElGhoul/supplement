@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+die() {
+  echo "$*" >&2
+  exit 78
+}
+
+args=()
+case "$#:${1:-}" in
+0:)
+  credential=${CREDENTIALS_DIRECTORY:-}/hub.secret
+  [[ -n ${CREDENTIALS_DIRECTORY:-} && -r $credential ]] ||
+    die 'Start token-monitor.service with a configured hub secret.'
+  TOKEN_MONITOR_SECRET=$(<"$credential")
+  [[ $TOKEN_MONITOR_SECRET =~ [^[:space:]] ]] || die 'Token Monitor hub secret is blank.'
+  ;;
+1:--dry-run)
+  TOKEN_MONITOR_SECRET=
+  args=(--once --dry-run)
+  ;;
+*) die "Usage: $0 [--dry-run]" ;;
+esac
+export TOKEN_MONITOR_SECRET
+export MISE_EXEC_AUTO_INSTALL=0
+
+cd -P -- "${XDG_DATA_HOME:-$HOME/.local/share}/supplement/token-monitor/current" ||
+  die 'Run scripts/configs/install-token-monitor.sh first.'
+exec /usr/bin/mise x node -- node src/agent/agent.js \
+  --hub=https://token-monitor-hub.yousefelghoul03.workers.dev \
+  --clients=claude,codex,opencode,hermes \
+  --history=true --sessionArchive=true --sync-session-titles=false \
+  --limits=true --limitProviders=claude,codex,opencode \
+  --limitsRefreshMode=adaptive "${args[@]}"
