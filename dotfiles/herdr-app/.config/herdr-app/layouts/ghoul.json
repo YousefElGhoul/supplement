@@ -33,6 +33,16 @@
               "min": 90
             },
             {
+              "id": "usage",
+              "type": "block",
+              "content": {
+                "mod": "usage-ghoul"
+              },
+              "size": {
+                "px": 320
+              }
+            },
+            {
               "id": "agents",
               "type": "block",
               "content": {
