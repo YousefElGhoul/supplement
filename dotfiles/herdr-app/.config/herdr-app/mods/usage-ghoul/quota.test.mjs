@@ -23,6 +23,20 @@ test("selects only the standard Claude and Codex quota meters", () => {
   assert.throws(() => quotaGroups({}));
 });
 
+test("only marks an unused Claude 5h window without a reset as not started", () => {
+  const unused = { kind: "session", remainingPercent: 100, resetsAt: null };
+  const [claude, codex] = quotaGroups({ limits: { providers: [
+    { provider: "claude", windows: [
+      unused, { ...unused, remainingPercent: 99 }, { ...unused, resetsAt: reset },
+      { ...unused, resetsAt: "invalid" }, { ...unused, windowMinutes: 240 },
+      { ...unused, kind: "weekly" },
+    ] },
+    { provider: "codex", windows: [unused] },
+  ] } });
+  assert.deepEqual(claude.rows.map((row) => row.notStarted), [true, false, false, false, false, false]);
+  assert.equal(codex.rows[0].notStarted, false);
+});
+
 test("projects even use and exhaustion only when the window supports it", () => {
   const row = { left: 20, length: 5 * HOUR, reset: now + 3 * HOUR };
   assert.deepEqual(quotaTiming(row, now), {

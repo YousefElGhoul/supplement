@@ -21,10 +21,12 @@ export function quotaGroups(stats) {
             label: `${account}${length ? duration(length) : "Billing"}`,
             left: Math.max(0, Math.min(100, window.remainingPercent)),
             reset: Date.parse(window.resetsAt),
+            notStarted: id === "claude" && kind === "session" && length === WINDOWS.session &&
+              window.remainingPercent === 100 && window.resetsAt == null,
             length,
             stale: provider.stale === true || (provider.status != null && provider.status !== "ok"),
             observedAt: Date.parse(provider.updatedAt),
-            maxAge: Number.isFinite(stats.staleAfterMs) && stats.staleAfterMs > 0 ? stats.staleAfterMs : 15 * MINUTE,
+            maxAge: 30 * MINUTE,
           };
         }));
     });
@@ -37,7 +39,7 @@ export function quotaTiming(row, now, disconnected = false) {
   const stale = disconnected || row.stale || (Number.isFinite(row.observedAt) && now - row.observedAt > row.maxAge);
   if (stale || !(resetIn > 0 && resetIn <= row.length)) return { stale, resetIn };
 
-  // Match OpenCode Quota's time-based even-use marker and 5-point pace band.
+  // Show time-based even use and allow a five-point pace band.
   const evenLeft = 100 * resetIn / row.length;
   const elapsed = row.length - resetIn;
   const fast = row.left < evenLeft - 5;
