@@ -120,7 +120,8 @@
       "model": "openai/gpt-6-luna"
     }
   },
-  "plugins": [
-    "@slkiser/opencode-quota"
-  ]
+  "provider": {
+    "openai": {},
+    "opencode": {}
+  }
 }
