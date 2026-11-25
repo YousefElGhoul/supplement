@@ -57,6 +57,7 @@ else
 fi
 
 stow -d "$repo_dir/dotfiles" -t "$HOME" --no-folding token-monitor
+bash "$repo_dir/scripts/configs/install-token-monitor-omarchy.sh"
 
 if [[ $installed != "$revision" || $refresh_patch_changed == true ]]; then
   candidate=$(mktemp -d "$install_dir/release.XXXXXXXX")

@@ -21,6 +21,9 @@
         },
         {
           "id": "omarchy.system-update"
+        },
+        {
+          "id": "ghoul.token-monitor-agents"
         }
       ],
       "left": [

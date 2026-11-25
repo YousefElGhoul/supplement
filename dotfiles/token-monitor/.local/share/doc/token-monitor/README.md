@@ -11,7 +11,9 @@ systemctl --user enable --now token-monitor.service
 ```
 
 The Hub HTTPS origin is local configuration, not a credential. The agent can
-also accept `TOKEN_MONITOR_HUB_URL`. Use the Worker's existing shared secret at the
+also accept `TOKEN_MONITOR_HUB_URL`; Herdr and Omarchy read `hub-url` directly.
+For Herdr and Omarchy, keep the bearer token in `herdr-hub-secret` in the same
+directory with mode `0600`. Use the Worker's existing shared secret at the
 installer prompt. The script doesn't echo
 the secret or overwrite an existing file. It saves the secret with mode `0600`
 at `~/.config/token-monitor/hub.secret`, which systemd loads as a service
@@ -33,13 +35,18 @@ minutes for Codex, using available local sign-ins for supported providers
 not synced.
 
 Claude and Codex quota checks share a private persisted cache and respect rate
-limit cooldowns.
+limit cooldowns. Opening the managed Omarchy Agents panel or pressing Herdr's
+refresh button asks the agent for a fresh limits-only reading, at most once
+every 15 seconds, before reading the Hub. Omarchy still collects unrelated
+providers normally. Manage Claude and Codex sign-ins in their CLIs, not via
+Omarchy's quota rows.
 
 An exhausted account with a confirmed zero reset-credit balance reuses its
 last quota reading until the blocking windows reset. Codex checks credits
 alone every two minutes while blocked with credits, and checks quota after a
 likely redemption. Claude reports credits with its usage, so it keeps polling
-if credit availability is unknown or credits remain.
+if credit availability is unknown or credits remain. The panel shows known
+banked resets beside the quota meters.
 
 The device ID defaults to the hostname. If hostnames collide, set a unique
 `TOKEN_MONITOR_DEVICE_ID` in a `systemctl --user edit token-monitor.service`

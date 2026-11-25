@@ -1,0 +1,150 @@
+#!/usr/bin/env python3
+"""Adapt the shared Hub quota feed to Omarchy's display records."""
+
+import concurrent.futures
+from datetime import datetime
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+
+MIGRATED = {"claude": "Claude Code", "codex": "Codex"}
+STATE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
+CONFIG = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "token-monitor"
+REFRESH = Path.home() / ".local/bin/token-monitor-refresh"
+
+
+def project(provider, name, rows, periods=None):
+    accounts = []
+    for row in rows:
+        windows = []
+        for window in row.get("windows", []):
+            used = window.get("usedPercent")
+            if used is None and isinstance(window.get("remainingPercent"), (int, float)):
+                used = 100 - window["remainingPercent"]
+            if isinstance(used, (int, float)) and 0 <= used <= 100 and window.get("showMeter") is not False and not window.get("metric"):
+                windows.append(dict(label=window.get("label") or window.get("kind") or "Quota",
+                                    percent=used / 100, resetsAt=window.get("resetsAt") or ""))
+        stamp = 0
+        try:
+            stamp = int(datetime.fromisoformat(row["updatedAt"].replace("Z", "+00:00")).timestamp() * 1000)
+        except (KeyError, AttributeError, ValueError):
+            pass
+        credits = row.get("resetCredits") or {}
+        resets = credits.get("availableCount")
+        accounts.append(dict(id=row.get("accountKey") or provider, label=row.get("accountLabel") or name,
+                             plan=row.get("plan") or "", limits=windows, fetchedAt=stamp,
+                             resetCredits=dict(available=resets, nextExpiresAt=credits.get("nextExpiresAt"))
+                             if isinstance(resets, int) and row.get("status") == "ok" else None,
+                             stale=row.get("stale") is True or row.get("status") != "ok",
+                             usageStatusText="Quota check rate limited" if row.get("status") == "sourceRateLimited" else ""))
+    first = accounts[0] if accounts else {}
+    client = "codex" if provider == "codex" else provider
+    tokens = ((periods or {}).get("today", {}).get("clients") or {}).get(client)
+    return dict(schemaVersion=1, id=provider, name=name, ready=True, tierLabel=first.get("plan") or "Hub quota",
+                todayTotalTokens=tokens or 0, hasLocalStats=isinstance(tokens, (int, float)),
+                hasPromptStats=False, limits=first.get("limits", []),
+                resetCredits=first.get("resetCredits"),
+                limitsStale=first.get("stale", True), limitsFetchedAt=first.get("fetchedAt", 0),
+                usageStatusText=first.get("usageStatusText") or ("" if first.get("limits") else "Quota unavailable"),
+                accounts=accounts if len(accounts) > 1 else [])
+
+
+def write_record(provider, record):
+    directory = STATE / "omarchy/agents/usage"
+    directory.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=directory, mode="w", delete=False) as file:
+        json.dump(record, file, allow_nan=False)
+    os.replace(file.name, directory / f"{provider}.json")
+
+
+def request_refresh(limits_only):
+    """Ask the local Token Monitor agent for a fresh quota reading.
+
+    A panel open must never hang on an unavailable agent, so a timeout or a
+    missing socket falls through to the Hub's last known values.
+    """
+    try:
+        command = [str(REFRESH)]
+        if limits_only:
+            command.append("--limits-only")
+        subprocess.run(command, timeout=20, stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, check=False)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def update_hub(targets, refresh):
+    if not targets:
+        return
+    if refresh:
+        request_refresh(refresh == "limits")
+    try:
+        hub = (CONFIG / "hub-url").read_text().strip().rstrip("/")
+        if not re.fullmatch(r"https://[A-Za-z0-9.-]+(?::[0-9]+)?", hub):
+            raise ValueError("Invalid Hub HTTPS origin")
+        secret = (CONFIG / "herdr-hub-secret").read_text().strip()
+        if not secret or "\r" in secret or "\n" in secret:
+            raise ValueError("Missing Hub credential")
+        result = subprocess.run(["curl", "-fsS", "--max-time", "12", "-H", "@-", f"{hub}/api/stats"],
+                                input=f"Authorization: Bearer {secret}\nAccept: application/json\n",
+                                text=True, capture_output=True, check=True)
+        stats = json.loads(result.stdout)
+        rows = stats["limits"]["providers"]
+        for provider in targets:
+            write_record(provider, project(provider, MIGRATED[provider], [r for r in rows if r["provider"] == provider], stats.get("periods")))
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
+        for provider in targets:
+            try:
+                record = json.loads((STATE / f"omarchy/agents/usage/{provider}.json").read_text())
+            except (OSError, ValueError):
+                record = project(provider, MIGRATED[provider], [])
+            record.update(limitsStale=True, usageStatusText="Token Monitor Hub unavailable")
+            for account in record.get("accounts", []):
+                account["stale"] = True
+            write_record(provider, record)
+
+
+def refresh_kind(flags, targets):
+    """Full refresh outranks limits-only; no flags means a Hub read only."""
+    if not targets:
+        return None
+    if "--force" in flags:
+        return "full"
+    if "--limits-only" in flags:
+        return "limits"
+    return None
+
+
+def main(args):
+    excluded, selected, flags = set(), set(), []
+    hub_only = False
+    args = iter(args)
+    for arg in args:
+        if arg == "--except":
+            excluded.add(next(args))
+        elif arg == "--hub-only":
+            hub_only = True
+        elif arg in ("--force", "--limits-only"):
+            flags.append(arg)
+        else:
+            selected.add(arg)
+    targets = ((selected or set(MIGRATED)) & MIGRATED.keys()) - excluded
+    refresh = None if hub_only else refresh_kind(flags, targets)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        hub = pool.submit(update_hub, targets, refresh)
+        status = 0
+        if not selected or selected - MIGRATED.keys() - excluded:
+            command = ["/usr/bin/omarchy-agent-usage-update", *flags]
+            for provider in sorted(excluded | MIGRATED.keys()):
+                command.extend(("--except", provider))
+            status = subprocess.run([*command, *(selected - MIGRATED.keys())]).returncode
+        hub.result()
+    return status
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -3,9 +3,11 @@
 
 import os
 from pathlib import Path
+import runpy
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -13,9 +15,80 @@ INSTALLER = REPO / "scripts/configs/install-token-monitor.sh"
 LAUNCHER = REPO / "dotfiles/token-monitor/.local/bin/token-monitor-agent"
 SET_SECRET = REPO / "scripts/configs/set-token-monitor-secret.sh"
 FIRST_REVISION = "084e143a7acd00d088b8ba7ee6c7b115fef8ec5d"
+OMARCHY_ADAPTER = (
+    REPO / "dotfiles/token-monitor/.local/bin/token-monitor-omarchy-update"
+)
 
 
 class TokenMonitorTests(unittest.TestCase):
+    def test_omarchy_projects_shared_quota_without_resetting_observation_time(self):
+        project = runpy.run_path(str(OMARCHY_ADAPTER))["project"]
+        record = project(
+            "claude",
+            "Claude Code",
+            [
+                {
+                    "status": "sourceRateLimited",
+                    "updatedAt": "2026-11-25T00:00:00Z",
+                    "windows": [{"kind": "weekly", "remainingPercent": 25}],
+                }
+            ],
+            {"today": {"clients": {"claude": 42}}},
+        )
+        self.assertTrue(record["limitsStale"])
+        self.assertEqual(record["limitsFetchedAt"], 1795564800000)
+        self.assertEqual(record["limits"][0]["percent"], 0.75)
+        self.assertEqual(record["todayTotalTokens"], 42)
+
+    def test_omarchy_maps_reset_credits_to_provider_and_account_records(self):
+        project = runpy.run_path(str(OMARCHY_ADAPTER))["project"]
+        expiry = "2026-12-01T00:00:00Z"
+        credits = {"availableCount": 2, "nextExpiresAt": expiry}
+        record = project(
+            "codex",
+            "Codex",
+            [
+                {"status": "ok", "accountKey": "one", "resetCredits": credits},
+                {
+                    "status": "ok",
+                    "accountKey": "two",
+                    "resetCredits": {"availableCount": 0},
+                },
+            ],
+        )
+        self.assertEqual(
+            record["resetCredits"], {"available": 2, "nextExpiresAt": expiry}
+        )
+        self.assertEqual(record["accounts"][1]["resetCredits"]["available"], 0)
+
+    def test_omarchy_refresh_flags_request_the_local_agent(self):
+        module = runpy.run_path(str(OMARCHY_ADAPTER))
+        refresh_kind = module["refresh_kind"]
+        self.assertIsNone(refresh_kind([], {"claude"}))
+        self.assertEqual(refresh_kind(["--limits-only"], {"claude"}), "limits")
+        self.assertEqual(refresh_kind(["--force"], {"claude"}), "full")
+        self.assertEqual(refresh_kind(["--force", "--limits-only"], {"claude"}), "full")
+        self.assertIsNone(refresh_kind(["--force"], set()))
+
+        calls = []
+        with mock.patch.object(
+            module["subprocess"],
+            "run",
+            side_effect=lambda command, **options: calls.append((command, options)),
+        ):
+            module["request_refresh"](True)
+            module["request_refresh"](False)
+        self.assertEqual(calls[0][0][-1], "--limits-only")
+        self.assertEqual(calls[0][1]["timeout"], 20)
+        self.assertNotIn("--limits-only", calls[1][0])
+
+        with mock.patch.object(
+            module["subprocess"],
+            "run",
+            side_effect=subprocess.TimeoutExpired("refresh", 20),
+        ):
+            module["request_refresh"](True)
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory(dir="/tmp/opencode")
         self.addCleanup(temp.cleanup)
