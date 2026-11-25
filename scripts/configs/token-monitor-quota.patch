@@ -1,0 +1,629 @@
+diff --git a/src/agent/agent.js b/src/agent/agent.js
+index ace21f7..cadb41e 100644
+--- a/src/agent/agent.js
++++ b/src/agent/agent.js
+@@ -13,7 +13,8 @@ const {
+   normalizeLimitsRefreshMode,
+   normalizeLimitsRefreshMs,
+   parseBoolean,
+-  parseLimitProviders
++  parseLimitProviders,
++  probeLimitProvider
+ } = require('../shared/limits/collector');
+ const { createSyncPayloadUploader } = require('../shared/syncPayload');
+ const postSyncPayload = createSyncPayloadUploader();
+@@ -22,6 +23,7 @@ const { HUB_RESPONSE_HEADER, HUB_RESPONSE_MINIMAL } = require('../shared/hubProt
+ const { applyProjectRollups } = require('../shared/usage');
+ const { runAgent, runAgentOnce } = require('./runtime');
+ const { createRefreshServer } = require('./refreshServer');
++const { quotaProbe, quotaRefreshPriority } = require('./quotaProbe');
+ const {
+   applySessionUsageArchive,
+   sessionUsageArchiveDate,
+@@ -207,6 +209,8 @@ async function main() {
+   // Electron can yield before its history read-modify-write reaches disk.
+   let runtimeHandle = null;
+   let refreshServer = null;
++  let latestRecord;
++  const uploaded = new WeakSet();
+   if (!dryRun) registerPidFile(() => {
+     refreshServer?.close();
+     runtimeHandle?.stop();
+@@ -222,7 +226,11 @@ async function main() {
+     usageOptions,
+     limitsOptions,
+     transformUsage: summaryWithSessionUsageArchive,
+-    deliver,
++    async deliver(record) {
++      await deliver(record);
++      uploaded.add(record);
++    },
++    onRecord: (record) => { latestRecord = record; },
+     dryRun,
+     onRuntime: (runtime) => { runtimeHandle = runtime; },
+     onError: (error, reason) => console.error(`[${new Date().toISOString()}] (${reason}) ${error.message}`)
+@@ -235,11 +243,33 @@ async function main() {
+     }
+     return;
+   }
+-  runtimeHandle = runAgent(runtimeOptions);
+-  refreshServer = createRefreshServer(async () => {
+-    await runtimeHandle.tick('manual-refresh');
++  const gate = quotaProbe(probeLimitProvider, path.join(path.dirname(pidFilePath()), 'headless-quota.json'));
++  runtimeOptions.limitsOptions.previousLimits = gate.previousLimits;
++  runtimeHandle = runAgent(runtimeOptions, { deviceRuntimeDeps: { limitsDeps: {
++    probeProvider: gate,
++    providerRefreshPriority: quotaRefreshPriority
++  } } });
++  // The shared limits timer stays at 15 minutes for Claude; Codex is checked sooner.
++  setInterval(() => {
++    runtimeHandle.refreshLimits({ provider: 'codex' }, 'codex-interval')
++      ?.catch?.((error) => console.error(`[codex-limits] ${error.message}`));
++  }, 120_000).unref();
++  refreshServer = createRefreshServer(async ({ limitsOnly } = {}) => {
++    if (limitsOnly) {
++      await runtimeHandle.refreshLimits({}, 'panel-open');
++      const record = latestRecord;
++      await runtimeHandle.flush();
++      if (!record || !uploaded.has(record) && !uploaded.has(latestRecord)) throw new Error('Hub upload failed');
++      return;
++    }
++    // Refresh quotas before the usage scan so the Hub has fresh limits even
++    // when a long scan keeps the full refresh running.
+     await runtimeHandle.refreshLimits({}, 'manual-refresh');
+     await runtimeHandle.flush();
++    if (!await runtimeHandle.tick('manual-refresh')) throw new Error('Usage scan failed');
++    const record = latestRecord;
++    await runtimeHandle.flush();
++    if (!record || !uploaded.has(record) && !uploaded.has(latestRecord)) throw new Error('Hub upload failed');
+   });
+ }
+ 
+diff --git a/src/agent/quotaProbe.js b/src/agent/quotaProbe.js
+new file mode 100644
+index 0000000..b455641
+--- /dev/null
++++ b/src/agent/quotaProbe.js
+@@ -0,0 +1,198 @@
++'use strict';
++
++const fs = require('node:fs');
++const { exhaustedUntil } = require('../shared/limits/exhaustedQuota');
++
++// A panel open or a refresh click may ask sooner than the scheduled poll, but
++// never more often than this. The window is short enough to feel live and long
++// enough to absorb repeated clicks.
++const INTERACTIVE_REUSE_MS = 15_000;
++const INTERACTIVE_REASONS = new Set(['manual-refresh', 'panel-open']);
++const SCHEDULED_INTERVAL_MS = { claude: 900_000, codex: 120_000 };
++const MAX_COOLDOWN_MS = 3_600_000;
++
++function quotaRefreshPriority(provider, reason) {
++  if (!Object.hasOwn(SCHEDULED_INTERVAL_MS, provider)) return 0;
++  return INTERACTIVE_REASONS.has(reason) ? 2 : 1;
++}
++
++function readJson(file) {
++  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
++}
++
++// One quota owner per machine. The gate keeps the provider's rate-limit
++// cooldown across restarts and shares the last observation between the
++// scheduled poll, the Omarchy panel and Herdr.
++function quotaProbe(probe, file, { now = Date.now, env = process.env, random = Math.random } = {}) {
++  let state = {};
++  try { state = JSON.parse(fs.readFileSync(file, 'utf8')) || {}; } catch {}
++  const scopes = { claude: `${env.CLAUDE_CONFIG_DIR || `${env.HOME}/.claude`}/.credentials.json`,
++    codex: `${env.CODEX_HOME || `${env.HOME}/.codex`}/auth.json` };
++
++  // Prefer the account fields a token refresh leaves alone. The file stat is
++  // only a fallback: a refreshed token rewrites the file without changing who
++  // is signed in, and that must not clear a provider cooldown.
++  function identityFor(provider) {
++    const credentials = readJson(scopes[provider]);
++    if (provider === 'claude') {
++      const oauth = credentials?.claudeAiOauth || {};
++      const account = oauth.accountUuid || oauth.organizationUuid;
++      if (account) return `account:${account}${oauth.accountUuid && oauth.organizationUuid ? `:${oauth.organizationUuid}` : ''}`;
++    } else if (provider === 'codex') {
++      const account = credentials?.tokens?.account_id || credentials?.account_id;
++      if (account) return `account:${account}`;
++    }
++    try {
++      const stat = fs.statSync(scopes[provider]);
++      return `file:${stat.dev}:${stat.ino}:${stat.mtimeMs}:${stat.size}`;
++    } catch {
++      return null;
++    }
++  }
++
++  function retained(provider, entry) {
++    const rows = entry?.rows?.length ? entry.rows : entry?.good || [];
++    return rows.length ? rows : [{ provider, status: entry?.status || 'sourceRateLimited', windows: [] }];
++  }
++
++  const gate = async (provider, options, context, deps) => {
++    if (!Object.hasOwn(scopes, provider)) return probe(provider, options, context, deps);
++    const identity = identityFor(provider);
++    const prior = state[provider];
++    const current = now();
++    const sameAccount = prior !== undefined && prior.identity === identity;
++    const interactive = quotaRefreshPriority(provider, context?.reason) === 2;
++    const cooldownUntil = prior?.cooldownUntil ?? (prior?.failures ? prior.nextAt : 0);
++
++    // A 429 cooldown applies to every caller, including a panel open. The last
++    // good windows stay visible, but they are never presented as new.
++    if (cooldownUntil > current) {
++      context?.onRetryAfter?.(cooldownUntil - current);
++      return retained(provider, sameAccount ? prior : null);
++    }
++
++    // Only pause the Claude CLI lane when we can identify its sole account.
++    const claudeRow = sameAccount && identity?.startsWith('account:') && prior.rows?.length === 1 && prior.rows[0];
++    const claudePaused = provider === 'claude' && claudeRow?.source === 'oauth' &&
++      !options.claudeManagedAccounts?.length && !options.claudeAccountSlots?.length &&
++      !options.claudeWebCookie && !env.CLAUDE_WEB_COOKIE && claudeRow.resetCredits?.availableCount === 0;
++    if (claudePaused && exhaustedUntil(claudeRow, current)) return prior.rows;
++
++    // Scheduled polls keep their provider interval. Interactive callers may
++    // ask sooner, but share any probe from the last 15 seconds.
++    if (!interactive && context?.reason !== 'reset-boundary' && sameAccount && Number(prior?.nextAt) > current) {
++      return retained(provider, prior);
++    }
++    const lastCheck = prior?.completedAt ?? prior?.lastAttemptAt;
++    if (interactive && sameAccount && lastCheck != null && current - lastCheck < INTERACTIVE_REUSE_MS) {
++      return retained(provider, prior);
++    }
++
++    const save = (entry) => {
++      state[provider] = entry;
++      fs.writeFileSync(`${file}.tmp`, JSON.stringify(state), { mode: 0o600 });
++      fs.renameSync(`${file}.tmp`, file);
++    };
++    const interval = SCHEDULED_INTERVAL_MS[provider] || 900_000;
++    const good = sameAccount ? prior.good || [] : [];
++    const rows = sameAccount ? prior.rows || [] : [];
++    // Claim the attempt before it starts so another process (or a restart)
++    // cannot duplicate it. Preserve the last published rows while it runs.
++    save({
++      identity,
++      rows,
++      good,
++      status: prior?.status || 'ok',
++      failures: prior?.failures || 0,
++      cooldownUntil,
++      lastAttemptAt: current,
++      nextAt: current + interval
++    });
++
++    let retryAfter = 0;
++    let rateLimited = false;
++    let result;
++    try {
++      result = await probe(provider, {
++        ...options,
++        ...(provider === 'codex' ? {
++          headlessResetCreditPolling: true,
++          headlessPreviousCodexRows: sameAccount ? prior.rows : []
++        } : {})
++      }, {
++        ...context,
++        onHttpStatus(status) {
++          rateLimited ||= status === 429;
++          context?.onHttpStatus?.(status);
++        },
++        onRetryAfter(ms) {
++          if (Number.isFinite(ms)) retryAfter = Math.max(retryAfter, ms);
++          context?.onRetryAfter?.(ms);
++        }
++      }, deps);
++    } catch (error) {
++      // A thrown probe is still an attempt. Hold off only briefly so the
++      // runtime's own retry policy can try again, and keep any Retry-After.
++      const limited = rateLimited || retryAfter > 0;
++      if (context?.signal?.aborted && !limited) throw error;
++      const until = now() + (limited ? Math.max(retryAfter, interval) : INTERACTIVE_REUSE_MS);
++      save({
++        ...state[provider],
++        identity,
++        rows: limited ? rows.map((row) => ({ ...row, status: 'sourceRateLimited', stale: true })) : rows,
++        good,
++        status: limited ? 'sourceRateLimited' : prior?.status || 'unavailable',
++        failures: limited ? (prior?.failures || 0) + 1 : prior?.failures || 0,
++        cooldownUntil: limited ? until : 0,
++        lastAttemptAt: current,
++        nextAt: until
++      });
++      throw error;
++    }
++
++    const limited = rateLimited || retryAfter > 0 || result.some((row) => ['sourceRateLimited', 'rateLimited'].includes(row.status));
++    if (context?.signal?.aborted && !limited) return result;
++    const failures = limited ? (prior?.failures || 0) + 1 : 0;
++    const delay = limited
++      ? (retryAfter > 0
++          ? Math.max(INTERACTIVE_REUSE_MS, retryAfter)
++          : Math.min(MAX_COOLDOWN_MS, interval * 2 ** Math.min(failures - 1, 2)))
++        + Math.floor(random() * 5000)
++      : interval;
++    const published = result.map((row) => {
++      const old = good.find((entry) => entry.accountKey === row.accountKey) ||
++        (!row.accountKey && good.length === 1 ? good[0] : null);
++      return ['sourceRateLimited', 'rateLimited', 'unavailable', 'timeout', 'error'].includes(row.status) && !row.windows?.length && old
++        ? { ...old, status: row.status, stale: true } : row;
++    });
++    const status = published.find((row) => row.status !== 'ok')?.status || (limited ? 'sourceRateLimited' : 'ok');
++    const creditCheckAt = provider === 'codex' ? Math.min(...published
++      .filter(row => exhaustedUntil(row, current) && row.resetCredits?.availableCount > 0)
++      .map(row => (row.headlessCreditsCheckedAt ?? current) + interval)) : Infinity;
++    const nextAt = limited ? now() + delay : Math.min(current + interval, creditCheckAt);
++    if (limited) context?.onRetryAfter?.(delay);
++    save({
++      identity,
++      rows: published,
++      good: published.some((row) => row.status === 'ok')
++        ? published.filter((row) => row.status === 'ok') : good,
++      status,
++      failures,
++      cooldownUntil: limited ? nextAt : 0,
++      lastAttemptAt: current,
++      completedAt: now(),
++      nextAt
++    });
++    console.log(`[quota] ${provider} ${published.map((row) => row.status).join(',')}; next check no earlier than ${new Date(state[provider].nextAt).toISOString()}`);
++    return published;
++  };
++
++  gate.previousLimits = { providers: Object.keys(scopes).flatMap((provider) => {
++    const entry = state[provider];
++    if (!entry || entry.identity !== identityFor(provider)) return [];
++    return entry.rows?.length ? entry.rows : entry.good || [];
++  }) };
++  return gate;
++}
++
++module.exports = { quotaProbe, quotaRefreshPriority };
+diff --git a/src/agent/refreshServer.js b/src/agent/refreshServer.js
+index a95e9b1..2945df3 100644
+--- a/src/agent/refreshServer.js
++++ b/src/agent/refreshServer.js
+@@ -10,9 +10,34 @@ function refreshSocketPath(env = process.env) {
+ }
+ 
+ function createRefreshServer(refresh, socketPath = refreshSocketPath()) {
+-  let activeRefresh = null;
++  // A limits-only request and a full refresh may arrive together: the panel
++  // opens while Herdr is refreshing, for example. Join whichever work is
++  // already running instead of probing the provider twice.
++  let activeLimits = null;
++  let activeFull = null;
++
++  function limitsOnly() {
++    if (activeLimits) return activeLimits;
++    if (activeFull) return activeFull;
++    activeLimits = Promise.resolve()
++      .then(() => refresh({ limitsOnly: true }))
++      .finally(() => { activeLimits = null; });
++    return activeLimits;
++  }
++
++  function full() {
++    if (activeFull) return activeFull;
++    const waiting = activeLimits ? activeLimits.catch(() => {}) : Promise.resolve();
++    activeFull = waiting
++      .then(() => refresh({ limitsOnly: false }))
++      .finally(() => { activeFull = null; });
++    return activeFull;
++  }
++
+   const server = net.createServer((socket) => {
+     socket.setEncoding('utf8');
++    socket.on('error', () => socket.destroy());
++    socket.setTimeout(5000, () => socket.destroy());
+     let input = '';
+     let handled = false;
+     socket.on('data', (chunk) => {
+@@ -39,8 +64,9 @@ function createRefreshServer(refresh, socketPath = refreshSocketPath()) {
+         return;
+       }
+       handled = true;
+-      activeRefresh ||= Promise.resolve().then(refresh).finally(() => { activeRefresh = null; });
+-      activeRefresh.then(
++      socket.setTimeout(0);
++      const run = request.limitsOnly === true ? limitsOnly : full;
++      run().then(
+         () => socket.end('{"ok":true}\n'),
+         () => socket.end('{"ok":false,"error":"refresh failed"}\n')
+       );
+diff --git a/src/shared/limits/core.js b/src/shared/limits/core.js
+index 221965f..ad297f3 100644
+--- a/src/shared/limits/core.js
++++ b/src/shared/limits/core.js
+@@ -766,6 +766,7 @@ function publicLimits(limits) {
+       planLabel,
+       workspaceKind,
+       usageSummary,
++      resetCredits,
+       ...provider
+     }) => {
+       if (!provider.balance) return provider;
+diff --git a/src/shared/limits/exhaustedQuota.js b/src/shared/limits/exhaustedQuota.js
+new file mode 100644
+index 0000000..240719c
+--- /dev/null
++++ b/src/shared/limits/exhaustedQuota.js
+@@ -0,0 +1,18 @@
++'use strict';
++
++const { LIMITS_RESET_BOUNDARY_DELAY_MS } = require('./resetBoundary');
++
++function exhaustedUntil(row, now) {
++  if (row?.status !== 'ok') return null;
++  const exhausted = (row.windows || []).filter(window =>
++    ['session', 'daily', 'weekly', 'monthly', 'billing'].includes(window.kind) &&
++    !window.additional && !window.metric && window.showMeter !== false &&
++    (window.remainingPercent ?? (100 - window.usedPercent)) === 0);
++  if (!exhausted.length) return null;
++  const resets = exhausted.map(window => Date.parse(window.resetsAt || ''));
++  if (!resets.every(Number.isFinite)) return null;
++  const until = Math.max(...resets) + LIMITS_RESET_BOUNDARY_DELAY_MS;
++  return until > now ? until : null;
++}
++
++module.exports = { exhaustedUntil };
+diff --git a/src/shared/limits/runtime.js b/src/shared/limits/runtime.js
+index 01f4778..f14229d 100644
+--- a/src/shared/limits/runtime.js
++++ b/src/shared/limits/runtime.js
+@@ -448,14 +448,16 @@ function createLimitsRuntime(initialOptions = {}, deps = {}) {
+       resetTimer = null;
+       for (const key of next.keys || []) attemptedResetBoundaries.add(key);
+       const scopes = new Map((next.scopes || []).map((scope) => {
+-        const normalized = normalizedScope(scope);
++        const normalized = deps.providerRefreshPriority?.(scope.provider, 'reset-boundary')
++          ? { provider: scope.provider } : normalizedScope(scope);
+         return [JSON.stringify(normalized), normalized];
+       }));
+       for (const scope of scopes.values()) {
+         const provider = providerId(scope.provider);
+         const rows = snapshot.providers.filter((row) => row.provider === provider);
+         const strongIdentity = clean(scope.accountKey || scope.accountEmail || scope.accountName);
+-        if (!configuredProviders.has(provider) || (provider !== 'muse' && rows.length > 1 && !strongIdentity)) continue;
++        if (!configuredProviders.has(provider) || (provider !== 'muse' && rows.length > 1 && !strongIdentity
++          && !deps.providerRefreshPriority?.(provider, 'reset-boundary'))) continue;
+         void refresh(scope, 'reset-boundary');
+       }
+       scheduleResetTimer();
+@@ -977,6 +979,20 @@ function createLimitsRuntime(initialOptions = {}, deps = {}) {
+     const identityKey = scopeIdentityKey(scope);
+     const key = accountScoped ? identityKey : `${provider}:*`;
+ 
++    const priority = !accountScoped && deps.providerRefreshPriority?.(provider, reason);
++    if (priority) {
++      const pending = lane.pending.get(key);
++      if (pending) {
++        if (priority > pending.priority) Object.assign(pending, { priority, reason });
++        return pending.promise;
++      }
++      const active = lane.active;
++      if (active?.intent.key === key && !active.controller.signal.aborted) {
++        return priority <= active.intent.priority ? active.intent.promise
++          : active.intent.promise.then(() => queueScope(scope, reason));
++      }
++    }
++
+     if (accountScoped) {
+       lane.accountRevisions.set(identityKey, (lane.accountRevisions.get(identityKey) || 0) + 1);
+       if (lane.active?.intent.key === key) {
+@@ -1004,6 +1020,8 @@ function createLimitsRuntime(initialOptions = {}, deps = {}) {
+       accountScoped,
+       scope: cloneValue(scope),
+       reason,
++      priority,
++      promise,
+       resolve,
+       settled: false
+     };
+diff --git a/src/shared/providers/claude/limits.js b/src/shared/providers/claude/limits.js
+index a704125..d07f706 100644
+--- a/src/shared/providers/claude/limits.js
++++ b/src/shared/providers/claude/limits.js
+@@ -526,7 +526,7 @@ function claudeResetCredits(usage, now) {
+       const endsAt = Date.parse(grant.ends_at || '');
+       return !Number.isFinite(endsAt) || endsAt > nowMs;
+     });
+-  if (grants.length === 0) return null;
++  if (!Array.isArray(block.grants)) return null;
+   const expirations = grants
+     .map((grant) => grant.ends_at)
+     .filter((value) => value && Number.isFinite(Date.parse(value)))
+diff --git a/src/shared/providers/codex/limits.js b/src/shared/providers/codex/limits.js
+index 085505e..92621f3 100644
+--- a/src/shared/providers/codex/limits.js
++++ b/src/shared/providers/codex/limits.js
+@@ -11,6 +11,7 @@ const os = require('node:os');
+ const path = require('node:path');
+ const { appVersion } = require('../../appVersion');
+ const { normalizeLimitProvider } = require('../../limits/core');
++const { exhaustedUntil } = require('../../limits/exhaustedQuota');
+ const { rowMatchesScope } = require('../../limits/accountScope');
+ const { abortError } = require('../../probeDeadline');
+ const {
+@@ -373,7 +374,8 @@ function codexChatGptBaseUrl(deps = {}) {
+ }
+ 
+ function parseCodexResetCreditsPayload(payload, nowMs = Date.now()) {
+-  const availableCount = Number(payload?.available_count ?? payload?.availableCount);
++  const rawCount = payload?.available_count ?? payload?.availableCount;
++  const availableCount = rawCount == null || rawCount === '' ? NaN : Number(rawCount);
+   if (!Number.isFinite(availableCount) || availableCount < 0) {
+     throw errorWithStatus('unavailable', 'Invalid Codex reset credits response');
+   }
+@@ -382,7 +384,9 @@ function parseCodexResetCreditsPayload(payload, nowMs = Date.now()) {
+     const status = String(credit?.status || '').toLowerCase();
+     if (status !== 'available') continue;
+     const expiresAt = credit?.expires_at ?? credit?.expiresAt;
+-    const expiresMs = Date.parse(expiresAt);
++    const number = typeof expiresAt === 'number' || /^\d+$/.test(expiresAt) ? Number(expiresAt) : NaN;
++    const expiry = Number.isFinite(number) ? new Date(number < 20_000_000_000 ? number * 1000 : number) : new Date(expiresAt);
++    const expiresMs = expiry.getTime();
+     if (!Number.isFinite(expiresMs) || expiresMs <= nowMs) continue;
+     expirations.push(new Date(expiresMs).toISOString());
+   }
+@@ -411,7 +415,8 @@ async function fetchCodexResetCredits(deps = {}) {
+     const response = await fetchFn(url, {
+       method: 'GET',
+       headers,
+-      ...(controller ? { signal: controller.signal } : {})
++      signal: controller && deps.signal ? AbortSignal.any([controller.signal, deps.signal])
++        : controller?.signal || deps.signal
+     });
+     if (!response.ok) {
+       const status = response.status === 401 || response.status === 403 ? 'unauthorized'
+@@ -462,6 +467,58 @@ async function withCodexOAuthResetCredits(payload, deps = {}, oauthAuthSnapshot
+   }
+ }
+ 
++async function readCodexAccountLimits(deps, options, accountKey, now) {
++  const previous = accountKey && options.headlessPreviousCodexRows?.find(row => row.accountKey === accountKey);
++  let credits;
++  let attemptedCredits = false;
++  let checkedAt = now;
++  const blocked = exhaustedUntil(previous, now);
++  if (options.headlessResetCreditPolling && blocked) {
++    if (previous.resetCredits?.availableCount === 0) return previous;
++    if (previous.resetCredits?.availableCount > 0) {
++      if (now - previous.headlessCreditsCheckedAt < 120_000) return previous;
++      attemptedCredits = true;
++      try {
++        credits = await readCodexResetCredits(deps);
++      } catch (error) {
++        if (deps.signal?.aborted || error?.status === 'sourceRateLimited') throw error;
++      }
++      if (Number.isFinite(credits?.availableCount)) {
++        const last = previous.resetCredits;
++        const expired = (last.expirations || [last.nextExpiresAt]).map(Date.parse)
++          .filter(at => at > (previous.headlessCreditsCheckedAt || Date.parse(previous.updatedAt)) && at <= now).length;
++        if (credits.availableCount >= last.availableCount - expired) {
++          return { ...previous, resetCredits: credits, headlessCreditsCheckedAt: now };
++        }
++      }
++    }
++  }
++
++  const result = await readCodexUsageOrRpc(deps);
++  if (!options.headlessResetCreditPolling) {
++    return { ...result, payload: await withCodexOAuthResetCredits(result.payload, deps, result.oauthAuthSnapshot) };
++  }
++  const row = mapCodexRateLimitsToProvider(result.payload, { updatedAt: nowIso(now) });
++  const embedded = row.resetCredits;
++  if (!credits) {
++    if (embedded?.availableCount === 0 || Date.parse(embedded?.nextExpiresAt) > now) credits = embedded;
++    else if (!exhaustedUntil(row, now) && previous?.resetCredits &&
++        (embedded?.availableCount == null || embedded.availableCount === previous.resetCredits.availableCount) &&
++        now - previous.headlessCreditsCheckedAt < 900_000 &&
++        (previous.resetCredits.availableCount === 0 || Date.parse(previous.resetCredits.nextExpiresAt) > now)) {
++      credits = previous.resetCredits;
++      checkedAt = previous.headlessCreditsCheckedAt;
++    } else if (!attemptedCredits) {
++      try {
++        credits = await readCodexResetCredits(result.oauthAuthSnapshot
++          ? { ...deps, codexOAuthAuthSnapshot: result.oauthAuthSnapshot } : deps);
++      } catch (_) { /* No confirmed balance; keep normal quota polling. */ }
++    }
++  }
++  return { ...result, payload: { ...result.payload, rateLimitResetCredits: credits || embedded },
++    headlessCreditsCheckedAt: checkedAt };
++}
++
+ function codexAccountLabel(payload = {}) {
+   return codexPlanLabelFromParts(...codexPlanParts(payload));
+ }
+@@ -1278,7 +1335,7 @@ async function readCodexUsageOrRpc(deps = {}) {
+   return { payload: rpcPayload, source: 'rpc', sourceDetail: rpcPayload.sourceDetail };
+ }
+ 
+-async function fetchManagedCodexAccountLimits(account, _options = {}, deps = {}) {
++async function fetchManagedCodexAccountLimits(account, options = {}, deps = {}) {
+   const nowMs = (deps.now || Date.now)();
+   const env = {
+     ...(deps.env || process.env),
+@@ -1297,13 +1354,15 @@ async function fetchManagedCodexAccountLimits(account, _options = {}, deps = {})
+     : { email: '', accountLabel: '', providerAccountId: '', accountKey: '' };
+   accountDeps.codexRpcStoredAccountId = codexStoredAccountId(initialAuth);
+   try {
+-    const result = await readCodexUsageOrRpc(accountDeps);
+-    const payload = await withCodexOAuthResetCredits(result.payload, accountDeps, result.oauthAuthSnapshot);
++    const result = await readCodexAccountLimits(accountDeps, options,
++      managedCodexAccountKey(account, initialAuthIdentity, account.email || initialAuthIdentity.email), nowMs);
++    if (!result.payload) return result;
++    const { payload } = result;
+     const authIdentity = result.oauthAuthSnapshot
+       ? codexAuthIdentity(result.oauthAuthSnapshot.auth)
+       : initialAuthIdentity;
+     const email = account.email || authIdentity.email || payload.account?.email;
+-    return mapCodexRateLimitsToProvider(payload, {
++    const row = mapCodexRateLimitsToProvider(payload, {
+       accountKey: managedCodexAccountKey(account, authIdentity, email),
+       accountEmail: email,
+       accountLabel: codexAccountLabel(payload) || account.accountLabel,
+@@ -1313,6 +1372,7 @@ async function fetchManagedCodexAccountLimits(account, _options = {}, deps = {})
+       source: result.source,
+       sourceDetail: 'managed'
+     });
++    return options.headlessResetCreditPolling ? { ...row, headlessCreditsCheckedAt: result.headlessCreditsCheckedAt } : row;
+   } catch (error) {
+     const email = account.email || initialAuthIdentity.email;
+     return normalizeLimitProvider({
+@@ -1352,9 +1412,13 @@ function readLiveCodexIdentity(deps = {}) {
+     : { email: '', accountLabel: '', providerAccountId: '', accountKey: '' };
+ }
+ 
+-async function fetchLiveCodexAccount(deps = {}, nowMs = Date.now(), managedAccounts = []) {
+-  const result = await readCodexUsageOrRpc(deps);
+-  const payload = await withCodexOAuthResetCredits(result.payload, deps, result.oauthAuthSnapshot);
++async function fetchLiveCodexAccount(deps = {}, nowMs = Date.now(), managedAccounts = [], options = {}) {
++  const initialIdentity = options.headlessResetCreditPolling ? readLiveCodexIdentity(deps) : {};
++  const result = await readCodexAccountLimits(deps, options, initialIdentity.accountKey
++    ? resolvedCodexAccountKey(initialIdentity.email, initialIdentity.workspaceAccountId, initialIdentity.accountKey)
++    : '', nowMs);
++  if (!result.payload) return result;
++  const { payload } = result;
+   const authIdentity = result.oauthAuthSnapshot
+     ? codexAuthIdentity(result.oauthAuthSnapshot.auth)
+     : readLiveCodexIdentity(deps);
+@@ -1368,7 +1432,7 @@ async function fetchLiveCodexAccount(deps = {}, nowMs = Date.now(), managedAccou
+   const matchingManagedAccount = managedAccounts.find(
+     (account) => managedCodexAccountKey(account, {}, account.email) === accountKey
+   );
+-  return mapCodexRateLimitsToProvider(payload, {
++  const row = mapCodexRateLimitsToProvider(payload, {
+     accountKey,
+     accountEmail: email,
+     accountLabel: codexAccountLabel(payload),
+@@ -1378,6 +1442,7 @@ async function fetchLiveCodexAccount(deps = {}, nowMs = Date.now(), managedAccou
+     source: result.source,
+     sourceDetail: result.sourceDetail
+   });
++  return options.headlessResetCreditPolling ? { ...row, headlessCreditsCheckedAt: result.headlessCreditsCheckedAt } : row;
+ }
+ 
+ async function fetchCodexLimits(options = {}, deps = {}) {
+@@ -1415,7 +1480,7 @@ async function fetchCodexLimits(options = {}, deps = {}) {
+   // propagation) so a signed-out/not-configured state surfaces as before.
+   if (managedAccounts.length === 0) {
+     if (!includeLiveAccount) return [];
+-    const live = await fetchLiveCodexAccount(deps, nowMs);
++    const live = await fetchLiveCodexAccount(deps, nowMs, [], options);
+     return liveInScope(live) ? live : [];
+   }
+ 
+@@ -1436,7 +1501,7 @@ async function fetchCodexLimits(options = {}, deps = {}) {
+   // only live account just drops out, leaving the managed accounts.
+   if (includeLiveAccount) {
+     try {
+-      const live = await fetchLiveCodexAccount(deps, nowMs, managedAccounts);
++      const live = await fetchLiveCodexAccount(deps, nowMs, managedAccounts, options);
+       if (liveInScope(live)) {
+         providers.push(live);
+         markSeen(live);

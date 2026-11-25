@@ -3,12 +3,16 @@
 Run these commands from the Supplement repository root:
 
 ```bash
+install -d -m 700 ~/.config/token-monitor
+printf '%s\n' 'https://your-hub.example' > ~/.config/token-monitor/hub-url
 ./scripts/configs/install-token-monitor.sh
 ./scripts/configs/set-token-monitor-secret.sh
 systemctl --user enable --now token-monitor.service
 ```
 
-Use the Worker's existing shared secret at the prompt. The script doesn't echo
+The Hub HTTPS origin is local configuration, not a credential. The agent can
+also accept `TOKEN_MONITOR_HUB_URL`. Use the Worker's existing shared secret at the
+installer prompt. The script doesn't echo
 the secret or overwrite an existing file. It saves the secret with mode `0600`
 at `~/.config/token-monitor/hub.secret`, which systemd loads as a service
 credential. Don't put the secret in chat, shell arguments, or the repository.
@@ -21,11 +25,21 @@ upstream; `--no-pkg` deploys the Stow links but skips the agent download and
 dependency install.
 
 The [headless agent](https://github.com/Javis603/token-monitor/blob/main/docs/headless-agent.md)
-sends usage to the existing [Cloudflare Worker](https://token-monitor-hub.yousefelghoul03.workers.dev).
+sends usage to your configured Hub.
 It tracks Claude Code, Codex, OpenCode, and Hermes usage and archives their
-history. Adaptive quota refresh uses available local sign-ins for Claude Code,
-Codex, and supported OpenCode accounts (such as OpenCode Go). Hermes has no
-upstream quota probe. Session titles are not synced.
+history. Scheduled quota refresh is every fifteen minutes for Claude Code and every two
+minutes for Codex, using available local sign-ins for supported providers
+(including OpenCode Go). Hermes has no upstream quota probe. Session titles are
+not synced.
+
+Claude and Codex quota checks share a private persisted cache and respect rate
+limit cooldowns.
+
+An exhausted account with a confirmed zero reset-credit balance reuses its
+last quota reading until the blocking windows reset. Codex checks credits
+alone every two minutes while blocked with credits, and checks quota after a
+likely redemption. Claude reports credits with its usage, so it keeps polling
+if credit availability is unknown or credits remain.
 
 The device ID defaults to the hostname. If hostnames collide, set a unique
 `TOKEN_MONITOR_DEVICE_ID` in a `systemctl --user edit token-monitor.service`

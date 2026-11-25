@@ -36,6 +36,8 @@ flock -x 9
 
 current=$install_dir/current
 installed=
+refresh_patch_changed=false
+patches=("$repo_dir/scripts/configs/token-monitor-refresh.patch" "$repo_dir/scripts/configs/token-monitor-quota.patch")
 if [[ -e $current || -L $current ]]; then
   if [[ ! -L $current || $(realpath -m -- "$current") != "$install_dir"/release.* ||
     ! -d $current/.git || ! -f $current/src/agent/agent.js ]]; then
@@ -43,6 +45,9 @@ if [[ -e $current || -L $current ]]; then
     exit 1
   fi
   installed=$(git -C "$current" rev-parse HEAD)
+  if ! git -C "$current" apply --reverse --check "${patches[1]}" >/dev/null 2>&1; then
+    refresh_patch_changed=true
+  fi
 fi
 if $update; then
   remote=$(git ls-remote --exit-code "$upstream" refs/heads/main)
@@ -53,14 +58,18 @@ fi
 
 stow -d "$repo_dir/dotfiles" -t "$HOME" --no-folding token-monitor
 
-if [[ $installed != "$revision" ]]; then
+if [[ $installed != "$revision" || $refresh_patch_changed == true ]]; then
   candidate=$(mktemp -d "$install_dir/release.XXXXXXXX")
   trap 'if [[ ! $current -ef $candidate ]]; then rm -rf -- "$candidate" "$candidate.next"; fi' EXIT
-  git clone --quiet --depth 1 --revision "$revision" "$upstream" "$candidate"
+  source=$upstream
+  if [[ $installed == "$revision" ]]; then source=file://$(realpath -- "$current"); fi
+  git clone --quiet --depth 1 --revision "$revision" "$source" "$candidate"
   (
     cd -- "$candidate"
     mise x node npm -- npm ci --omit=dev --include=optional --no-audit --no-fund --engine-strict
     mise x node -- node scripts/ensure-vendored-tokscale.js
+    git apply "${patches[0]}"
+    git apply "${patches[1]}"
   )
   # Publish only a prepared checkout. The running agent can still use the previous one.
   ln -s -- "${candidate##*/}" "$candidate.next"
@@ -69,7 +78,7 @@ fi
 
 if systemctl --user show-environment >/dev/null 2>&1; then
   systemctl --user daemon-reload
-  if [[ -n $installed && $installed != "$revision" ]]; then
+  if [[ $refresh_patch_changed == true || ( -n $installed && $installed != "$revision" ) ]]; then
     systemctl --user try-restart token-monitor.service
   fi
 else

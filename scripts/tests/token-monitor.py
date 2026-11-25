@@ -42,7 +42,10 @@ class TokenMonitorTests(unittest.TestCase):
         mocks = {
             "git": """
 case "$1" in
-  -C) cat "$2/revision" ;;
+  -C)
+    if [[ "$3" == rev-parse ]]; then cat "$2/revision"; fi
+    if [[ "$3" == apply && "$4" == --reverse && ${PATCH_CHANGED:-0} == 1 ]]; then exit 1; fi
+    ;;
   ls-remote) printf '%s\\trefs/heads/main\\n' "$NEXT_REVISION" ;;
   clone)
     dest=${!#}
@@ -50,6 +53,7 @@ case "$1" in
     touch "$dest/src/agent/agent.js"
     printf '%s\\n' "$6" > "$dest/revision"
     ;;
+  apply) : ;;
   *) exit 1 ;;
 esac
 """,
@@ -145,6 +149,19 @@ esac
         )
         self.assertEqual(self.secret.read_text(), "preserve me")
         self.assertEqual(self.history.read_text(), "preserve me")
+
+    def test_patch_upgrade_builds_new_release_without_touching_installed_files(self):
+        self.assertEqual(self.install().returncode, 0)
+        original = self.current.resolve()
+        original_agent = original / "src/agent/agent.js"
+        original_agent.write_text("local change")
+        result = self.install(PATCH_CHANGED="1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(self.current.resolve(), original)
+        self.assertEqual(original_agent.read_text(), "local change")
+        self.assertEqual(
+            (self.current / "revision").read_text().strip(), FIRST_REVISION
+        )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,36 @@
+#!/usr/bin/env node
+'use strict';
+
+const net = require('node:net');
+const path = require('node:path');
+
+const limitsOnly = process.argv.includes('--limits-only');
+const runtimeDir = process.env.XDG_RUNTIME_DIR || `/run/user/${process.getuid()}`;
+const socket = net.createConnection(path.join(runtimeDir, 'token-monitor-refresh.sock'));
+let response = '';
+socket.setEncoding('utf8');
+socket.setTimeout(limitsOnly ? 60_000 : 600_000);
+socket.on('connect', () => socket.write(`${JSON.stringify({ command: 'refresh', limitsOnly })}\n`));
+socket.on('data', (chunk) => { response += chunk; });
+socket.on('end', () => {
+  try {
+    const result = JSON.parse(response);
+    if (result.ok) process.exitCode = 0;
+    else {
+      console.error(result.error || 'Token Monitor refresh failed');
+      process.exitCode = 1;
+    }
+  } catch {
+    console.error('Token Monitor returned an invalid refresh response');
+    process.exitCode = 1;
+  }
+});
+socket.on('timeout', () => {
+  console.error('Token Monitor refresh timed out');
+  socket.destroy();
+  process.exitCode = 1;
+});
+socket.on('error', () => {
+  console.error('Token Monitor agent is unavailable');
+  process.exitCode = 1;
+});

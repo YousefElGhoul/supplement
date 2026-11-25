@@ -24,11 +24,19 @@ esac
 export TOKEN_MONITOR_SECRET
 export MISE_EXEC_AUTO_INSTALL=0
 
+config=${XDG_CONFIG_HOME:-$HOME/.config}/token-monitor
+hub=${TOKEN_MONITOR_HUB_URL:-}
+if [[ -z $hub && -r $config/hub-url ]]; then hub=$(<"$config/hub-url"); fi
+if [[ -z $hub && ${1:-} == --dry-run ]]; then hub=https://example.invalid; fi
+hub=${hub%/}
+[[ $hub =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] ||
+  die "Set a Hub HTTPS origin in $config/hub-url."
+
 cd -P -- "${XDG_DATA_HOME:-$HOME/.local/share}/supplement/token-monitor/current" ||
   die 'Run scripts/configs/install-token-monitor.sh first.'
 exec /usr/bin/mise x node -- node src/agent/agent.js \
-  --hub=https://token-monitor-hub.yousefelghoul03.workers.dev \
+  --hub="$hub" \
   --clients=claude,codex,opencode,hermes \
   --history=true --sessionArchive=true --sync-session-titles=false \
   --limits=true --limitProviders=claude,codex,opencode \
-  --limitsRefreshMode=adaptive "${args[@]}"
+  --limitsRefreshMode=fixed --limitsRefreshMs=900000 "${args[@]}"

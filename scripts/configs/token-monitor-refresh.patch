@@ -1,0 +1,96 @@
+diff --git a/src/agent/agent.js b/src/agent/agent.js
+index ef2eadf9..ace21f77 100644
+--- a/src/agent/agent.js
++++ b/src/agent/agent.js
+@@ -21,6 +21,7 @@ const { createAgentTitleSync } = require('./titleSync');
+ const { HUB_RESPONSE_HEADER, HUB_RESPONSE_MINIMAL } = require('../shared/hubProtocol');
+ const { applyProjectRollups } = require('../shared/usage');
+ const { runAgent, runAgentOnce } = require('./runtime');
++const { createRefreshServer } = require('./refreshServer');
+ const {
+   applySessionUsageArchive,
+   sessionUsageArchiveDate,
+@@ -205,7 +206,9 @@ async function main() {
+   // Claim archive ownership before either a one-shot or long-running scan so
+   // Electron can yield before its history read-modify-write reaches disk.
+   let runtimeHandle = null;
++  let refreshServer = null;
+   if (!dryRun) registerPidFile(() => {
++    refreshServer?.close();
+     runtimeHandle?.stop();
+     sessionUsageArchiveStore.close();
+   });
+@@ -233,6 +236,11 @@ async function main() {
+     return;
+   }
+   runtimeHandle = runAgent(runtimeOptions);
++  refreshServer = createRefreshServer(async () => {
++    await runtimeHandle.tick('manual-refresh');
++    await runtimeHandle.refreshLimits({}, 'manual-refresh');
++    await runtimeHandle.flush();
++  });
+ }
+ 
+ main().catch((error) => { console.error(error); process.exitCode = 1; });
+diff --git a/src/agent/refreshServer.js b/src/agent/refreshServer.js
+new file mode 100644
+index 00000000..873512b7
+--- /dev/null
++++ b/src/agent/refreshServer.js
+@@ -0,0 +1,56 @@
++'use strict';
++
++const fs = require('node:fs');
++const net = require('node:net');
++const path = require('node:path');
++
++function refreshSocketPath(env = process.env) {
++  const runtimeDir = env.XDG_RUNTIME_DIR || `/run/user/${process.getuid()}`;
++  return path.join(runtimeDir, 'token-monitor-refresh.sock');
++}
++
++function createRefreshServer(refresh, socketPath = refreshSocketPath()) {
++  let activeRefresh = null;
++  const server = net.createServer((socket) => {
++    socket.setEncoding('utf8');
++    let input = '';
++    let handled = false;
++    socket.on('data', (chunk) => {
++      if (handled) return;
++      input += chunk;
++      if (input.length > 256) {
++        handled = true;
++        socket.end('{"ok":false,"error":"request too large"}\n');
++        return;
++      }
++      const newline = input.indexOf('\n');
++      if (newline < 0) return;
++      let request;
++      try {
++        request = JSON.parse(input.slice(0, newline));
++      } catch {
++        handled = true;
++        socket.end('{"ok":false,"error":"invalid request"}\n');
++        return;
++      }
++      if (request?.command !== 'refresh') {
++        handled = true;
++        socket.end('{"ok":false,"error":"unknown command"}\n');
++        return;
++      }
++      handled = true;
++      activeRefresh ||= Promise.resolve().then(refresh).finally(() => { activeRefresh = null; });
++      activeRefresh.then(
++        () => socket.end('{"ok":true}\n'),
++        () => socket.end('{"ok":false,"error":"refresh failed"}\n')
++      );
++    });
++  });
++
++  fs.mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
++  try { fs.unlinkSync(socketPath); } catch (error) { if (error.code !== 'ENOENT') throw error; }
++  server.listen(socketPath, () => fs.chmodSync(socketPath, 0o600));
++  server.on('close', () => { try { fs.unlinkSync(socketPath); } catch (_) {} });
++  return server;
++}
++module.exports = { createRefreshServer, refreshSocketPath };
